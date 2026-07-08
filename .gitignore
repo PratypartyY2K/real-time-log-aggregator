@@ -1,0 +1,20 @@
+# Binaries
+bin/
+dist/
+
+# Build artifacts
+coverage.out
+*.test
+.cache/
+
+# Environment
+.env
+.env.*
+
+# Editors
+.DS_Store
+.idea/
+.vscode/
+
+# Local data
+var/
