@@ -8,7 +8,8 @@ Current behavior:
 - accepts one JSON batch
 - enforces a 1 MiB request-body limit
 - validates RFC3339 timestamps
-- returns `202 Accepted` when the batch is structurally valid
+- publishes a versioned `logs.raw.v1` event to JetStream
+- returns `202 Accepted` when the batch is structurally valid and successfully published
 
 Example request:
 
@@ -31,7 +32,12 @@ Example request:
 }
 ```
 
+Wire contract:
+
+- subject: `logs.raw`
+- schema: `logs.raw.v1`
+- topology/bootstrap: see [docs/jetstream.md](/Users/pratyushkumar/Documents/Real-time%20Log%20Aggregator/docs/jetstream.md)
+
 Planned next step:
 
-- publish validated batches to `logs.raw` in NATS JetStream
 - replace header-presence auth with real API-key lookup against Postgres

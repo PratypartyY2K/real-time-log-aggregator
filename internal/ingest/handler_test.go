@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/PratypartyY2K/real-time-log-aggregator/internal/contracts"
 )
 
 func TestHandlerRejectsMissingAPIKey(t *testing.T) {
@@ -46,11 +48,14 @@ func TestHandlerAcceptsValidBatch(t *testing.T) {
 	if publisher.batch == nil {
 		t.Fatal("expected batch to be published")
 	}
-	if publisher.batch.Batch.Service != "checkout" {
-		t.Fatalf("expected published service checkout, got %q", publisher.batch.Batch.Service)
+	if publisher.batch.Service != "checkout" {
+		t.Fatalf("expected published service checkout, got %q", publisher.batch.Service)
 	}
 	if publisher.batch.RequestID == "" {
 		t.Fatal("expected request id to be set")
+	}
+	if publisher.batch.SchemaVersion != contracts.LogsRawSchemaVersion {
+		t.Fatalf("expected schema version %q, got %q", contracts.LogsRawSchemaVersion, publisher.batch.SchemaVersion)
 	}
 }
 
@@ -100,10 +105,10 @@ func TestHandlerReturnsServiceUnavailableWhenPublishFails(t *testing.T) {
 
 type stubPublisher struct {
 	err   error
-	batch *PublishedBatch
+	batch *contracts.LogsRawEvent
 }
 
-func (s *stubPublisher) Publish(_ context.Context, batch PublishedBatch) error {
+func (s *stubPublisher) Publish(_ context.Context, batch contracts.LogsRawEvent) error {
 	if s.err != nil {
 		return s.err
 	}

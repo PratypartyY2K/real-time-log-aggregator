@@ -4,7 +4,7 @@
 
 - Accepts HTTP log batches.
 - Will enforce API-key auth, payload sizing, and rate limits.
-- Publishes validated batches to `logs.raw`.
+- Publishes versioned `logs.raw.v1` events to `logs.raw`.
 
 ## Processor
 

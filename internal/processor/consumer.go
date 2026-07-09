@@ -6,7 +6,7 @@ import (
 
 	"github.com/PratypartyY2K/real-time-log-aggregator/internal/app"
 	"github.com/PratypartyY2K/real-time-log-aggregator/internal/config"
-	"github.com/PratypartyY2K/real-time-log-aggregator/internal/ingest"
+	"github.com/PratypartyY2K/real-time-log-aggregator/internal/contracts"
 	"github.com/PratypartyY2K/real-time-log-aggregator/internal/stream"
 )
 
@@ -19,24 +19,25 @@ func Run(ctx context.Context, logger app.Logger, cfg config.Config) error {
 
 	logger.Info("processor consumer started", "stream", cfg.NATSStream, "subject", cfg.NATSSubject, "durable", cfg.NATSDurable)
 
-	return consumer.Consume(ctx, func(ctx context.Context, batch ingest.PublishedBatch) error {
+	return consumer.Consume(ctx, func(ctx context.Context, batch contracts.LogsRawEvent) error {
 		return handleBatch(ctx, logger, batch)
 	})
 }
 
-func handleBatch(_ context.Context, logger app.Logger, batch ingest.PublishedBatch) error {
-	if batch.RequestID == "" {
-		return fmt.Errorf("batch missing request_id")
+func handleBatch(_ context.Context, logger app.Logger, batch contracts.LogsRawEvent) error {
+	if err := batch.Validate(); err != nil {
+		return fmt.Errorf("invalid logs.raw event: %w", err)
 	}
 
 	logger.Info(
 		"processor received batch",
 		"request_id", batch.RequestID,
 		"received_at", batch.ReceivedAt,
-		"service", batch.Batch.Service,
-		"env", batch.Batch.Env,
-		"source", batch.Batch.Source,
-		"log_count", len(batch.Batch.Logs),
+		"schema_version", batch.SchemaVersion,
+		"service", batch.Service,
+		"env", batch.Env,
+		"source", batch.Source,
+		"log_count", len(batch.Logs),
 	)
 
 	return nil

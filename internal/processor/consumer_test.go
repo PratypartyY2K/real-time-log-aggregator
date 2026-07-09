@@ -4,24 +4,23 @@ import (
 	"context"
 	"testing"
 
-	"github.com/PratypartyY2K/real-time-log-aggregator/internal/ingest"
+	"github.com/PratypartyY2K/real-time-log-aggregator/internal/contracts"
 )
 
 func TestHandleBatchAcceptsPublishedBatch(t *testing.T) {
 	logger := &stubLogger{}
-	batch := ingest.PublishedBatch{
-		RequestID:  "req-123",
-		ReceivedAt: "2026-07-09T20:12:07Z",
-		Batch: ingest.BatchRequest{
-			Service: "checkout",
-			Env:     "prod",
-			Source:  "app",
-			Logs: []ingest.LogRecord{
-				{
-					Timestamp: "2026-07-07T16:00:00Z",
-					Level:     "error",
-					Message:   "database timeout",
-				},
+	batch := contracts.LogsRawEvent{
+		SchemaVersion: contracts.LogsRawSchemaVersion,
+		RequestID:     "req-123",
+		ReceivedAt:    "2026-07-09T20:12:07Z",
+		Service:       "checkout",
+		Env:           "prod",
+		Source:        "app",
+		Logs: []contracts.LogsRawRecord{
+			{
+				Timestamp: "2026-07-07T16:00:00Z",
+				Level:     "error",
+				Message:   "database timeout",
 			},
 		},
 	}
@@ -37,7 +36,7 @@ func TestHandleBatchAcceptsPublishedBatch(t *testing.T) {
 func TestHandleBatchRejectsMissingRequestID(t *testing.T) {
 	logger := &stubLogger{}
 
-	err := handleBatch(context.Background(), logger, ingest.PublishedBatch{})
+	err := handleBatch(context.Background(), logger, contracts.LogsRawEvent{})
 	if err == nil {
 		t.Fatal("expected error for missing request id")
 	}

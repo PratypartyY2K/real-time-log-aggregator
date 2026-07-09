@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/PratypartyY2K/real-time-log-aggregator/internal/contracts"
 )
 
 const apiKeyHeader = "X-API-Key"
@@ -24,7 +26,7 @@ type Handler struct {
 }
 
 type Publisher interface {
-	Publish(context.Context, PublishedBatch) error
+	Publish(context.Context, contracts.LogsRawEvent) error
 }
 
 type BatchRequest struct {
@@ -45,12 +47,6 @@ type BatchResponse struct {
 	RequestID string `json:"request_id"`
 	Accepted  int    `json:"accepted"`
 	Status    string `json:"status"`
-}
-
-type PublishedBatch struct {
-	RequestID  string       `json:"request_id"`
-	ReceivedAt string       `json:"received_at"`
-	Batch      BatchRequest `json:"batch"`
 }
 
 func NewHandler(cfg Config) *Handler {
@@ -103,11 +99,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	requestID := randomID()
-	if err := h.publisher.Publish(r.Context(), PublishedBatch{
-		RequestID:  requestID,
-		ReceivedAt: time.Now().UTC().Format(time.RFC3339Nano),
-		Batch:      req,
-	}); err != nil {
+	event := toLogsRawEvent(requestID, time.Now().UTC().Format(time.RFC3339Nano), req)
+	if err := h.publisher.Publish(r.Context(), event); err != nil {
 		writeError(w, http.StatusServiceUnavailable, "failed to queue logs")
 		return
 	}
@@ -117,6 +110,28 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		Accepted:  len(req.Logs),
 		Status:    "queued",
 	})
+}
+
+func toLogsRawEvent(requestID, receivedAt string, req BatchRequest) contracts.LogsRawEvent {
+	logs := make([]contracts.LogsRawRecord, 0, len(req.Logs))
+	for _, record := range req.Logs {
+		logs = append(logs, contracts.LogsRawRecord{
+			Timestamp: record.Timestamp,
+			Level:     record.Level,
+			Message:   record.Message,
+			Fields:    record.Fields,
+		})
+	}
+
+	return contracts.LogsRawEvent{
+		SchemaVersion: contracts.LogsRawSchemaVersion,
+		RequestID:     requestID,
+		ReceivedAt:    receivedAt,
+		Service:       req.Service,
+		Env:           req.Env,
+		Source:        req.Source,
+		Logs:          logs,
+	}
 }
 
 func (r BatchRequest) Validate() error {

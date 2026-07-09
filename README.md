@@ -42,6 +42,7 @@ docker compose -f deployments/local/docker-compose.yml up -d
 2. Run a service:
 
 ```bash
+go run ./cmd/nats-setup
 go run ./cmd/ingest-api
 go run ./cmd/query-api
 go run ./cmd/processor
@@ -57,6 +58,10 @@ go run ./cmd/processor
 - `CLICKHOUSE_DSN`
 
 Each service has sane local defaults; see `internal/config/config.go`.
+
+## JetStream contract
+
+The `logs.raw` stream contract is defined explicitly in [docs/jetstream.md](/Users/pratyushkumar/Documents/Real-time%20Log%20Aggregator/docs/jetstream.md). Runtime services validate and bind to pre-provisioned JetStream state; they do not create the stream implicitly.
 
 ## MVP next steps
 
