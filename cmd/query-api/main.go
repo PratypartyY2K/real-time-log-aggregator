@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/pratyushkumar/real-time-log-aggregator/internal/app"
-	"github.com/pratyushkumar/real-time-log-aggregator/internal/config"
+	"github.com/PratypartyY2K/real-time-log-aggregator/internal/app"
+	"github.com/PratypartyY2K/real-time-log-aggregator/internal/config"
 )
 
 func main() {

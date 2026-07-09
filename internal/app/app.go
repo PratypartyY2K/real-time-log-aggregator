@@ -11,8 +11,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/pratyushkumar/real-time-log-aggregator/internal/config"
-	"github.com/pratyushkumar/real-time-log-aggregator/internal/logging"
+	"github.com/PratypartyY2K/real-time-log-aggregator/internal/config"
+	"github.com/PratypartyY2K/real-time-log-aggregator/internal/logging"
 )
 
 type Logger interface {
