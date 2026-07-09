@@ -9,6 +9,7 @@ type Config struct {
 	NATSURL       string
 	NATSStream    string
 	NATSSubject   string
+	NATSDurable   string
 	PostgresDSN   string
 	ClickHouseDSN string
 }
@@ -21,6 +22,7 @@ func Load(defaultServiceName, defaultHTTPAddr string) Config {
 		NATSURL:       envOrDefault("NATS_URL", "nats://localhost:4222"),
 		NATSStream:    envOrDefault("NATS_STREAM", "LOGS"),
 		NATSSubject:   envOrDefault("NATS_SUBJECT", "logs.raw"),
+		NATSDurable:   envOrDefault("NATS_DURABLE", defaultServiceName),
 		PostgresDSN:   envOrDefault("POSTGRES_DSN", "postgres://logagg:logagg@localhost:5432/logagg?sslmode=disable"),
 		ClickHouseDSN: envOrDefault("CLICKHOUSE_DSN", "http://localhost:8123"),
 	}

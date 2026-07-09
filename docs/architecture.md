@@ -9,7 +9,8 @@
 ## Processor
 
 - Consumes `logs.raw`.
-- Normalizes timestamps, severity, tenant/service metadata, and event fingerprints.
+- Logs received batch metadata now.
+- Will normalize timestamps, severity, tenant/service metadata, and event fingerprints.
 - Writes to ClickHouse and emits alert evaluation input.
 
 ## Query API
