@@ -1,22 +1,31 @@
 package main
 
 import (
+	"log"
 	"net/http"
 
 	"github.com/PratypartyY2K/real-time-log-aggregator/internal/app"
 	"github.com/PratypartyY2K/real-time-log-aggregator/internal/config"
 	"github.com/PratypartyY2K/real-time-log-aggregator/internal/ingest"
+	"github.com/PratypartyY2K/real-time-log-aggregator/internal/stream"
 )
 
 func main() {
 	cfg := config.Load("ingest-api", ":8080")
-	service := app.NewHTTPService(cfg, routes())
+	nc, publisher, err := stream.ConnectJetStream(cfg.NATSURL, cfg.NATSStream, cfg.NATSSubject)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer nc.Drain()
+
+	service := app.NewHTTPService(cfg, routes(publisher))
 	app.Run(service)
 }
 
-func routes() http.Handler {
+func routes(publisher ingest.Publisher) http.Handler {
 	handler := ingest.NewHandler(ingest.Config{
 		MaxBodyBytes: 1 << 20,
+		Publisher:    publisher,
 	})
 
 	mux := http.NewServeMux()

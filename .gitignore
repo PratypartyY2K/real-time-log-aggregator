@@ -6,6 +6,8 @@ dist/
 coverage.out
 *.test
 .cache/
+.gocache/
+.gomodcache/
 
 # Environment
 .env

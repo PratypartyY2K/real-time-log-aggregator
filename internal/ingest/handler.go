@@ -1,6 +1,7 @@
 package ingest
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -14,10 +15,16 @@ const apiKeyHeader = "X-API-Key"
 
 type Config struct {
 	MaxBodyBytes int64
+	Publisher    Publisher
 }
 
 type Handler struct {
 	maxBodyBytes int64
+	publisher    Publisher
+}
+
+type Publisher interface {
+	Publish(context.Context, PublishedBatch) error
 }
 
 type BatchRequest struct {
@@ -40,12 +47,21 @@ type BatchResponse struct {
 	Status    string `json:"status"`
 }
 
+type PublishedBatch struct {
+	RequestID  string       `json:"request_id"`
+	ReceivedAt string       `json:"received_at"`
+	Batch      BatchRequest `json:"batch"`
+}
+
 func NewHandler(cfg Config) *Handler {
 	limit := cfg.MaxBodyBytes
 	if limit <= 0 {
 		limit = 1 << 20
 	}
-	return &Handler{maxBodyBytes: limit}
+	return &Handler{
+		maxBodyBytes: limit,
+		publisher:    cfg.Publisher,
+	}
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -81,10 +97,25 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if h.publisher == nil {
+		writeError(w, http.StatusServiceUnavailable, "ingest publisher unavailable")
+		return
+	}
+
+	requestID := randomID()
+	if err := h.publisher.Publish(r.Context(), PublishedBatch{
+		RequestID:  requestID,
+		ReceivedAt: time.Now().UTC().Format(time.RFC3339Nano),
+		Batch:      req,
+	}); err != nil {
+		writeError(w, http.StatusServiceUnavailable, "failed to queue logs")
+		return
+	}
+
 	writeJSON(w, http.StatusAccepted, BatchResponse{
-		RequestID: randomID(),
+		RequestID: requestID,
 		Accepted:  len(req.Logs),
-		Status:    "queued_stub",
+		Status:    "queued",
 	})
 }
 
