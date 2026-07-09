@@ -11,7 +11,7 @@ A portfolio project focused on reliability engineering and distributed systems f
 ## Architecture
 
 - `ingest-api`: receives logs over HTTP and publishes batches to the stream
-- `processor`: consumes streamed logs, normalizes them, and prepares records for storage and alerting
+- `processor`: consumes streamed logs, logs receipt now, and will prepare records for storage and alerting
 - `query-api`: serves health endpoints now and will become the read path for logs, alerts, and metadata
 - `NATS JetStream`: durable buffering, replay, and backpressure boundary
 - `ClickHouse`: analytical store for logs
@@ -61,7 +61,7 @@ Each service has sane local defaults; see `internal/config/config.go`.
 ## MVP next steps
 
 1. Implement `/v1/logs` ingestion with API key validation and request limits.
-2. Add NATS publisher and consumer adapters.
+2. Add normalized-log persistence and alert evaluation in `processor`.
 3. Define Postgres schema for tenants, API keys, and alert rules.
 4. Define ClickHouse schema for normalized logs.
 5. Add Prometheus metrics and OpenTelemetry once the base flow is in place.
