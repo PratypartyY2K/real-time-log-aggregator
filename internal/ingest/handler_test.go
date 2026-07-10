@@ -14,16 +14,21 @@ import (
 func TestHandlerRejectsMissingAPIKey(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/v1/logs", bytes.NewBufferString(`{}`))
 	rec := httptest.NewRecorder()
+	observer := &stubObserver{}
 
-	NewHandler(Config{}).ServeHTTP(rec, req)
+	NewHandler(Config{Observer: observer}).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("expected 401, got %d", rec.Code)
+	}
+	if len(observer.observations) != 1 || observer.observations[0].Outcome != AuthOutcomeMissingAPIKey {
+		t.Fatalf("expected missing_api_key observation, got %#v", observer.observations)
 	}
 }
 
 func TestHandlerAcceptsValidBatch(t *testing.T) {
 	publisher := &stubPublisher{}
+	observer := &stubObserver{}
 	body := `{
 		"service":"checkout",
 		"env":"prod",
@@ -42,6 +47,7 @@ func TestHandlerAcceptsValidBatch(t *testing.T) {
 
 	NewHandler(Config{
 		Authenticator: stubAuthenticator{authz: Authorization{Decision: AuthorizationAllowed, TenantID: 1, ServiceID: 2}},
+		Observer:      observer,
 		Publisher:     publisher,
 	}).ServeHTTP(rec, req)
 
@@ -59,6 +65,9 @@ func TestHandlerAcceptsValidBatch(t *testing.T) {
 	}
 	if publisher.batch.SchemaVersion != contracts.LogsRawSchemaVersion {
 		t.Fatalf("expected schema version %q, got %q", contracts.LogsRawSchemaVersion, publisher.batch.SchemaVersion)
+	}
+	if len(observer.observations) != 1 || observer.observations[0].Outcome != AuthOutcomeAuthorized {
+		t.Fatalf("expected authorized observation, got %#v", observer.observations)
 	}
 }
 
@@ -96,14 +105,19 @@ func TestHandlerReturnsServiceUnavailableWhenPublishFails(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/v1/logs", bytes.NewBufferString(body))
 	req.Header.Set(apiKeyHeader, "local-dev-key")
 	rec := httptest.NewRecorder()
+	observer := &stubObserver{}
 
 	NewHandler(Config{
 		Authenticator: stubAuthenticator{authz: Authorization{Decision: AuthorizationAllowed, TenantID: 1, ServiceID: 2}},
+		Observer:      observer,
 		Publisher:     &stubPublisher{err: errors.New("nats unavailable")},
 	}).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("expected 503, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if len(observer.observations) != 1 || observer.observations[0].Outcome != AuthOutcomeAuthorized {
+		t.Fatalf("expected authorized observation, got %#v", observer.observations)
 	}
 }
 
@@ -112,14 +126,19 @@ func TestHandlerRejectsInvalidAPIKey(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/v1/logs", bytes.NewBufferString(body))
 	req.Header.Set(apiKeyHeader, "bad-key")
 	rec := httptest.NewRecorder()
+	observer := &stubObserver{}
 
 	NewHandler(Config{
 		Authenticator: stubAuthenticator{authz: Authorization{Decision: AuthorizationInvalid}},
+		Observer:      observer,
 		Publisher:     &stubPublisher{},
 	}).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("expected 401, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if len(observer.observations) != 1 || observer.observations[0].Outcome != AuthOutcomeInvalidAPIKey {
+		t.Fatalf("expected invalid_api_key observation, got %#v", observer.observations)
 	}
 }
 
@@ -128,14 +147,19 @@ func TestHandlerReturnsServiceUnavailableWhenAuthFails(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/v1/logs", bytes.NewBufferString(body))
 	req.Header.Set(apiKeyHeader, "local-dev-key")
 	rec := httptest.NewRecorder()
+	observer := &stubObserver{}
 
 	NewHandler(Config{
 		Authenticator: stubAuthenticator{err: errors.New("postgres unavailable")},
+		Observer:      observer,
 		Publisher:     &stubPublisher{},
 	}).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("expected 503, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if len(observer.observations) != 1 || observer.observations[0].Outcome != AuthOutcomeBackendError {
+		t.Fatalf("expected backend_error observation, got %#v", observer.observations)
 	}
 }
 
@@ -144,14 +168,19 @@ func TestHandlerRejectsUnauthorizedServiceScope(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/v1/logs", bytes.NewBufferString(body))
 	req.Header.Set(apiKeyHeader, "scoped-key")
 	rec := httptest.NewRecorder()
+	observer := &stubObserver{}
 
 	NewHandler(Config{
 		Authenticator: stubAuthenticator{authz: Authorization{Decision: AuthorizationForbidden, TenantID: 1}},
+		Observer:      observer,
 		Publisher:     &stubPublisher{},
 	}).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("expected 403, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if len(observer.observations) != 1 || observer.observations[0].Outcome != AuthOutcomeForbiddenScope {
+		t.Fatalf("expected forbidden_scope observation, got %#v", observer.observations)
 	}
 }
 
@@ -165,8 +194,16 @@ type stubAuthenticator struct {
 	err   error
 }
 
+type stubObserver struct {
+	observations []AuthObservation
+}
+
 func (s stubAuthenticator) Authorize(_ context.Context, _ string, _ BatchRequest) (Authorization, error) {
 	return s.authz, s.err
+}
+
+func (s *stubObserver) ObserveAuth(_ context.Context, obs AuthObservation) {
+	s.observations = append(s.observations, obs)
 }
 
 func (s *stubPublisher) Publish(_ context.Context, batch contracts.LogsRawEvent) error {

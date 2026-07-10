@@ -18,12 +18,14 @@ const apiKeyHeader = "X-API-Key"
 type Config struct {
 	MaxBodyBytes  int64
 	Authenticator Authenticator
+	Observer      Observer
 	Publisher     Publisher
 }
 
 type Handler struct {
 	maxBodyBytes  int64
 	authenticator Authenticator
+	observer      Observer
 	publisher     Publisher
 }
 
@@ -77,6 +79,7 @@ func NewHandler(cfg Config) *Handler {
 	return &Handler{
 		maxBodyBytes:  limit,
 		authenticator: cfg.Authenticator,
+		observer:      cfg.Observer,
 		publisher:     cfg.Publisher,
 	}
 }
@@ -84,10 +87,12 @@ func NewHandler(cfg Config) *Handler {
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	apiKey := strings.TrimSpace(r.Header.Get(apiKeyHeader))
 	if apiKey == "" {
+		h.observeAuth(r.Context(), AuthObservation{Outcome: AuthOutcomeMissingAPIKey})
 		writeError(w, http.StatusUnauthorized, "missing api key")
 		return
 	}
 	if h.authenticator == nil {
+		h.observeAuth(r.Context(), AuthObservation{Outcome: AuthOutcomeAuthenticatorMissing})
 		writeError(w, http.StatusServiceUnavailable, "api key authenticator unavailable")
 		return
 	}
@@ -120,15 +125,39 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	authz, err := h.authenticator.Authorize(r.Context(), apiKey, req)
 	if err != nil {
+		h.observeAuth(r.Context(), AuthObservation{
+			Outcome: AuthOutcomeBackendError,
+			Service: req.Service,
+			Env:     req.Env,
+		})
 		writeError(w, http.StatusServiceUnavailable, "failed to validate api key")
 		return
 	}
 	switch authz.Decision {
 	case AuthorizationAllowed:
+		h.observeAuth(r.Context(), AuthObservation{
+			Outcome:   AuthOutcomeAuthorized,
+			Service:   req.Service,
+			Env:       req.Env,
+			TenantID:  authz.TenantID,
+			ServiceID: authz.ServiceID,
+		})
 	case AuthorizationForbidden:
+		h.observeAuth(r.Context(), AuthObservation{
+			Outcome:   AuthOutcomeForbiddenScope,
+			Service:   req.Service,
+			Env:       req.Env,
+			TenantID:  authz.TenantID,
+			ServiceID: authz.ServiceID,
+		})
 		writeError(w, http.StatusForbidden, "api key not authorized for service/env")
 		return
 	default:
+		h.observeAuth(r.Context(), AuthObservation{
+			Outcome: AuthOutcomeInvalidAPIKey,
+			Service: req.Service,
+			Env:     req.Env,
+		})
 		writeError(w, http.StatusUnauthorized, "invalid api key")
 		return
 	}
@@ -150,6 +179,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		Accepted:  len(req.Logs),
 		Status:    "queued",
 	})
+}
+
+func (h *Handler) observeAuth(ctx context.Context, obs AuthObservation) {
+	if h.observer != nil {
+		h.observer.ObserveAuth(ctx, obs)
+	}
 }
 
 func toLogsRawEvent(requestID, receivedAt string, req BatchRequest) contracts.LogsRawEvent {
