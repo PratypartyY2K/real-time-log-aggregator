@@ -5,6 +5,7 @@
 Current behavior:
 
 - requires `X-API-Key`
+- validates the API key against Postgres `api_keys.key_hash`
 - accepts one JSON batch
 - enforces a 1 MiB request-body limit
 - validates RFC3339 timestamps
@@ -38,6 +39,10 @@ Wire contract:
 - schema: `logs.raw.v1`
 - topology/bootstrap: see [docs/jetstream.md](/Users/pratyushkumar/Documents/Real-time%20Log%20Aggregator/docs/jetstream.md)
 
-Planned next step:
+For local testing, hash a plaintext key with SHA-256 and insert it into Postgres:
 
-- replace header-presence auth with real API-key lookup against Postgres
+```bash
+printf 'local-dev-key' | shasum -a 256
+```
+
+Use the resulting hex digest as `key_hash` in `api_keys`.
