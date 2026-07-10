@@ -6,6 +6,7 @@ Current behavior:
 
 - requires `X-API-Key`
 - validates the API key against Postgres `api_keys.key_hash`
+- requires the key to be authorized for the request `service` and `env`
 - accepts one JSON batch
 - enforces a 1 MiB request-body limit
 - validates RFC3339 timestamps
@@ -45,4 +46,4 @@ For local testing, hash a plaintext key with SHA-256 and insert it into Postgres
 printf 'local-dev-key' | shasum -a 256
 ```
 
-Use the resulting hex digest as `key_hash` in `api_keys`.
+Use the resulting hex digest as `key_hash` in `api_keys`, and make sure a matching row exists in `services` for the request `service` and `env`.

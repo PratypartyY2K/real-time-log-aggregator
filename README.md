@@ -59,12 +59,18 @@ go run ./cmd/processor
 
 Each service has sane local defaults; see `internal/config/config.go`.
 
-Before `ingest-api` can authorize requests, insert at least one active API key row in Postgres. The `api_keys.key_hash` column stores a SHA-256 hex digest of the plaintext key.
+Before `ingest-api` can authorize requests, insert at least one active API key row in Postgres and a matching service record. The `api_keys.key_hash` column stores a SHA-256 hex digest of the plaintext key.
 
 Example local bootstrap:
 
 ```sql
 INSERT INTO tenants (name) VALUES ('local') ON CONFLICT (name) DO NOTHING;
+
+INSERT INTO services (tenant_id, name, environment)
+SELECT id, 'checkout', 'prod'
+FROM tenants
+WHERE name = 'local'
+ON CONFLICT (tenant_id, name, environment) DO NOTHING;
 
 INSERT INTO api_keys (tenant_id, key_hash, status)
 SELECT id, '<sha256-of-local-dev-key>', 'active'
@@ -72,6 +78,8 @@ FROM tenants
 WHERE name = 'local'
 ON CONFLICT (key_hash) DO NOTHING;
 ```
+
+Leave `api_keys.service_id` as `NULL` for a tenant-wide key, or set it to a `services.id` value to restrict the key to one service/environment pair.
 
 ## JetStream contract
 
