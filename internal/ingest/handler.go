@@ -16,13 +16,19 @@ import (
 const apiKeyHeader = "X-API-Key"
 
 type Config struct {
-	MaxBodyBytes int64
-	Publisher    Publisher
+	MaxBodyBytes  int64
+	Authenticator Authenticator
+	Publisher     Publisher
 }
 
 type Handler struct {
-	maxBodyBytes int64
-	publisher    Publisher
+	maxBodyBytes  int64
+	authenticator Authenticator
+	publisher     Publisher
+}
+
+type Authenticator interface {
+	Authenticate(context.Context, string) (bool, error)
 }
 
 type Publisher interface {
@@ -55,14 +61,29 @@ func NewHandler(cfg Config) *Handler {
 		limit = 1 << 20
 	}
 	return &Handler{
-		maxBodyBytes: limit,
-		publisher:    cfg.Publisher,
+		maxBodyBytes:  limit,
+		authenticator: cfg.Authenticator,
+		publisher:     cfg.Publisher,
 	}
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if strings.TrimSpace(r.Header.Get(apiKeyHeader)) == "" {
+	apiKey := strings.TrimSpace(r.Header.Get(apiKeyHeader))
+	if apiKey == "" {
 		writeError(w, http.StatusUnauthorized, "missing api key")
+		return
+	}
+	if h.authenticator == nil {
+		writeError(w, http.StatusServiceUnavailable, "api key authenticator unavailable")
+		return
+	}
+	ok, err := h.authenticator.Authenticate(r.Context(), apiKey)
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, "failed to validate api key")
+		return
+	}
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "invalid api key")
 		return
 	}
 

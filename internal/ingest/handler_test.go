@@ -40,7 +40,10 @@ func TestHandlerAcceptsValidBatch(t *testing.T) {
 	req.Header.Set(apiKeyHeader, "local-dev-key")
 	rec := httptest.NewRecorder()
 
-	NewHandler(Config{Publisher: publisher}).ServeHTTP(rec, req)
+	NewHandler(Config{
+		Authenticator: stubAuthenticator{ok: true},
+		Publisher:     publisher,
+	}).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusAccepted {
 		t.Fatalf("expected 202, got %d: %s", rec.Code, rec.Body.String())
@@ -95,7 +98,40 @@ func TestHandlerReturnsServiceUnavailableWhenPublishFails(t *testing.T) {
 	rec := httptest.NewRecorder()
 
 	NewHandler(Config{
-		Publisher: &stubPublisher{err: errors.New("nats unavailable")},
+		Authenticator: stubAuthenticator{ok: true},
+		Publisher:     &stubPublisher{err: errors.New("nats unavailable")},
+	}).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestHandlerRejectsInvalidAPIKey(t *testing.T) {
+	body := `{"service":"checkout","env":"prod","logs":[{"timestamp":"2026-07-07T16:00:00Z","level":"info","message":"booting"}]}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/logs", bytes.NewBufferString(body))
+	req.Header.Set(apiKeyHeader, "bad-key")
+	rec := httptest.NewRecorder()
+
+	NewHandler(Config{
+		Authenticator: stubAuthenticator{ok: false},
+		Publisher:     &stubPublisher{},
+	}).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestHandlerReturnsServiceUnavailableWhenAuthFails(t *testing.T) {
+	body := `{"service":"checkout","env":"prod","logs":[{"timestamp":"2026-07-07T16:00:00Z","level":"info","message":"booting"}]}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/logs", bytes.NewBufferString(body))
+	req.Header.Set(apiKeyHeader, "local-dev-key")
+	rec := httptest.NewRecorder()
+
+	NewHandler(Config{
+		Authenticator: stubAuthenticator{err: errors.New("postgres unavailable")},
+		Publisher:     &stubPublisher{},
 	}).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusServiceUnavailable {
@@ -106,6 +142,15 @@ func TestHandlerReturnsServiceUnavailableWhenPublishFails(t *testing.T) {
 type stubPublisher struct {
 	err   error
 	batch *contracts.LogsRawEvent
+}
+
+type stubAuthenticator struct {
+	ok  bool
+	err error
+}
+
+func (s stubAuthenticator) Authenticate(_ context.Context, _ string) (bool, error) {
+	return s.ok, s.err
 }
 
 func (s *stubPublisher) Publish(_ context.Context, batch contracts.LogsRawEvent) error {
