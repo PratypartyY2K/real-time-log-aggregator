@@ -27,8 +27,22 @@ type Handler struct {
 	publisher     Publisher
 }
 
+type AuthorizationDecision int
+
+const (
+	AuthorizationInvalid AuthorizationDecision = iota
+	AuthorizationForbidden
+	AuthorizationAllowed
+)
+
+type Authorization struct {
+	Decision  AuthorizationDecision
+	TenantID  int64
+	ServiceID int64
+}
+
 type Authenticator interface {
-	Authenticate(context.Context, string) (bool, error)
+	Authorize(context.Context, string, BatchRequest) (Authorization, error)
 }
 
 type Publisher interface {
@@ -77,15 +91,6 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "api key authenticator unavailable")
 		return
 	}
-	ok, err := h.authenticator.Authenticate(r.Context(), apiKey)
-	if err != nil {
-		writeError(w, http.StatusServiceUnavailable, "failed to validate api key")
-		return
-	}
-	if !ok {
-		writeError(w, http.StatusUnauthorized, "invalid api key")
-		return
-	}
 
 	r.Body = http.MaxBytesReader(w, r.Body, h.maxBodyBytes)
 	defer r.Body.Close()
@@ -111,6 +116,20 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	if err := req.Validate(); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	authz, err := h.authenticator.Authorize(r.Context(), apiKey, req)
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, "failed to validate api key")
+		return
+	}
+	switch authz.Decision {
+	case AuthorizationAllowed:
+	case AuthorizationForbidden:
+		writeError(w, http.StatusForbidden, "api key not authorized for service/env")
+		return
+	default:
+		writeError(w, http.StatusUnauthorized, "invalid api key")
 		return
 	}
 

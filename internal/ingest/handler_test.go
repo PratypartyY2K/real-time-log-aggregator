@@ -41,7 +41,7 @@ func TestHandlerAcceptsValidBatch(t *testing.T) {
 	rec := httptest.NewRecorder()
 
 	NewHandler(Config{
-		Authenticator: stubAuthenticator{ok: true},
+		Authenticator: stubAuthenticator{authz: Authorization{Decision: AuthorizationAllowed, TenantID: 1, ServiceID: 2}},
 		Publisher:     publisher,
 	}).ServeHTTP(rec, req)
 
@@ -98,7 +98,7 @@ func TestHandlerReturnsServiceUnavailableWhenPublishFails(t *testing.T) {
 	rec := httptest.NewRecorder()
 
 	NewHandler(Config{
-		Authenticator: stubAuthenticator{ok: true},
+		Authenticator: stubAuthenticator{authz: Authorization{Decision: AuthorizationAllowed, TenantID: 1, ServiceID: 2}},
 		Publisher:     &stubPublisher{err: errors.New("nats unavailable")},
 	}).ServeHTTP(rec, req)
 
@@ -114,7 +114,7 @@ func TestHandlerRejectsInvalidAPIKey(t *testing.T) {
 	rec := httptest.NewRecorder()
 
 	NewHandler(Config{
-		Authenticator: stubAuthenticator{ok: false},
+		Authenticator: stubAuthenticator{authz: Authorization{Decision: AuthorizationInvalid}},
 		Publisher:     &stubPublisher{},
 	}).ServeHTTP(rec, req)
 
@@ -139,18 +139,34 @@ func TestHandlerReturnsServiceUnavailableWhenAuthFails(t *testing.T) {
 	}
 }
 
+func TestHandlerRejectsUnauthorizedServiceScope(t *testing.T) {
+	body := `{"service":"checkout","env":"prod","logs":[{"timestamp":"2026-07-07T16:00:00Z","level":"info","message":"booting"}]}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/logs", bytes.NewBufferString(body))
+	req.Header.Set(apiKeyHeader, "scoped-key")
+	rec := httptest.NewRecorder()
+
+	NewHandler(Config{
+		Authenticator: stubAuthenticator{authz: Authorization{Decision: AuthorizationForbidden, TenantID: 1}},
+		Publisher:     &stubPublisher{},
+	}).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
 type stubPublisher struct {
 	err   error
 	batch *contracts.LogsRawEvent
 }
 
 type stubAuthenticator struct {
-	ok  bool
-	err error
+	authz Authorization
+	err   error
 }
 
-func (s stubAuthenticator) Authenticate(_ context.Context, _ string) (bool, error) {
-	return s.ok, s.err
+func (s stubAuthenticator) Authorize(_ context.Context, _ string, _ BatchRequest) (Authorization, error) {
+	return s.authz, s.err
 }
 
 func (s *stubPublisher) Publish(_ context.Context, batch contracts.LogsRawEvent) error {
