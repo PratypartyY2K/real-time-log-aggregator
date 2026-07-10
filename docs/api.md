@@ -47,3 +47,10 @@ printf 'local-dev-key' | shasum -a 256
 ```
 
 Use the resulting hex digest as `key_hash` in `api_keys`, and make sure a matching row exists in `services` for the request `service` and `env`.
+
+## `GET /metricsz`
+
+Current behavior:
+
+- returns JSON counters for ingest auth outcomes
+- includes `authorized`, `missing_api_key`, `invalid_api_key`, `forbidden_scope`, `backend_error`, and `authenticator_unavailable`
