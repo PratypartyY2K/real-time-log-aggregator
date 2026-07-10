@@ -59,14 +59,28 @@ go run ./cmd/processor
 
 Each service has sane local defaults; see `internal/config/config.go`.
 
+Before `ingest-api` can authorize requests, insert at least one active API key row in Postgres. The `api_keys.key_hash` column stores a SHA-256 hex digest of the plaintext key.
+
+Example local bootstrap:
+
+```sql
+INSERT INTO tenants (name) VALUES ('local') ON CONFLICT (name) DO NOTHING;
+
+INSERT INTO api_keys (tenant_id, key_hash, status)
+SELECT id, '<sha256-of-local-dev-key>', 'active'
+FROM tenants
+WHERE name = 'local'
+ON CONFLICT (key_hash) DO NOTHING;
+```
+
 ## JetStream contract
 
 The `logs.raw` stream contract is defined explicitly in [docs/jetstream.md](/Users/pratyushkumar/Documents/Real-time%20Log%20Aggregator/docs/jetstream.md). Runtime services validate and bind to pre-provisioned JetStream state; they do not create the stream implicitly.
 
 ## MVP next steps
 
-1. Implement `/v1/logs` ingestion with API key validation and request limits.
+1. Add tenant/service-aware authorization checks in `ingest-api`.
 2. Add normalized-log persistence and alert evaluation in `processor`.
-3. Define Postgres schema for tenants, API keys, and alert rules.
+3. Extend Postgres schema and workflows for alert rules and control-plane state.
 4. Define ClickHouse schema for normalized logs.
 5. Add Prometheus metrics and OpenTelemetry once the base flow is in place.
