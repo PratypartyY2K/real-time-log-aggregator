@@ -9,6 +9,7 @@ import (
 	"github.com/PratypartyY2K/real-time-log-aggregator/internal/auth"
 	"github.com/PratypartyY2K/real-time-log-aggregator/internal/config"
 	"github.com/PratypartyY2K/real-time-log-aggregator/internal/ingest"
+	"github.com/PratypartyY2K/real-time-log-aggregator/internal/logging"
 	"github.com/PratypartyY2K/real-time-log-aggregator/internal/stream"
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
@@ -30,14 +31,16 @@ func main() {
 	}
 	defer nc.Drain()
 
-	service := app.NewHTTPService(cfg, routes(auth.NewPostgresAuthenticator(db), publisher))
+	observer := ingest.NewMetricsObserver(logging.New(cfg.LogLevel))
+	service := app.NewHTTPService(cfg, routes(auth.NewPostgresAuthenticator(db), publisher, observer))
 	app.Run(service)
 }
 
-func routes(authenticator ingest.Authenticator, publisher ingest.Publisher) http.Handler {
+func routes(authenticator ingest.Authenticator, publisher ingest.Publisher, observer *ingest.MetricsObserver) http.Handler {
 	handler := ingest.NewHandler(ingest.Config{
 		MaxBodyBytes:  1 << 20,
 		Authenticator: authenticator,
+		Observer:      observer,
 		Publisher:     publisher,
 	})
 
@@ -50,6 +53,7 @@ func routes(authenticator ingest.Authenticator, publisher ingest.Publisher) http
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ready"))
 	})
+	mux.Handle("/metricsz", observer)
 	mux.HandleFunc("/v1/logs", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
