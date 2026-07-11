@@ -17,10 +17,15 @@ const (
 	AuthOutcomeForbiddenScope       AuthOutcome = "forbidden_scope"
 	AuthOutcomeBackendError         AuthOutcome = "backend_error"
 	AuthOutcomeAuthenticatorMissing AuthOutcome = "authenticator_unavailable"
+	AuthOutcomeRateLimited          AuthOutcome = "rate_limited"
+	AuthOutcomeRequestBodyTooLarge  AuthOutcome = "request_body_too_large"
+	AuthOutcomeInvalidRequestBody   AuthOutcome = "invalid_request_body"
+	AuthOutcomeBatchTooLarge        AuthOutcome = "batch_too_large"
 )
 
 type AuthObservation struct {
 	Outcome   AuthOutcome
+	APIKeyID  int64
 	Service   string
 	Env       string
 	TenantID  int64
@@ -38,6 +43,10 @@ type MetricsSnapshot struct {
 	ForbiddenScope       int64 `json:"forbidden_scope"`
 	BackendError         int64 `json:"backend_error"`
 	AuthenticatorMissing int64 `json:"authenticator_unavailable"`
+	RateLimited          int64 `json:"rate_limited"`
+	RequestBodyTooLarge  int64 `json:"request_body_too_large"`
+	InvalidRequestBody   int64 `json:"invalid_request_body"`
+	BatchTooLarge        int64 `json:"batch_too_large"`
 }
 
 type MetricsObserver struct {
@@ -48,6 +57,10 @@ type MetricsObserver struct {
 	forbiddenScope       atomic.Int64
 	backendError         atomic.Int64
 	authenticatorMissing atomic.Int64
+	rateLimited          atomic.Int64
+	requestBodyTooLarge  atomic.Int64
+	invalidRequestBody   atomic.Int64
+	batchTooLarge        atomic.Int64
 }
 
 func NewMetricsObserver(logger *slog.Logger) *MetricsObserver {
@@ -68,6 +81,14 @@ func (o *MetricsObserver) ObserveAuth(_ context.Context, obs AuthObservation) {
 		o.backendError.Add(1)
 	case AuthOutcomeAuthenticatorMissing:
 		o.authenticatorMissing.Add(1)
+	case AuthOutcomeRateLimited:
+		o.rateLimited.Add(1)
+	case AuthOutcomeRequestBodyTooLarge:
+		o.requestBodyTooLarge.Add(1)
+	case AuthOutcomeInvalidRequestBody:
+		o.invalidRequestBody.Add(1)
+	case AuthOutcomeBatchTooLarge:
+		o.batchTooLarge.Add(1)
 	}
 
 	if o.logger == nil {
@@ -84,6 +105,7 @@ func (o *MetricsObserver) ObserveAuth(_ context.Context, obs AuthObservation) {
 		level,
 		"ingest auth outcome",
 		"outcome", string(obs.Outcome),
+		"api_key_id", obs.APIKeyID,
 		"service", obs.Service,
 		"env", obs.Env,
 		"tenant_id", obs.TenantID,
@@ -99,6 +121,10 @@ func (o *MetricsObserver) Snapshot() MetricsSnapshot {
 		ForbiddenScope:       o.forbiddenScope.Load(),
 		BackendError:         o.backendError.Load(),
 		AuthenticatorMissing: o.authenticatorMissing.Load(),
+		RateLimited:          o.rateLimited.Load(),
+		RequestBodyTooLarge:  o.requestBodyTooLarge.Load(),
+		InvalidRequestBody:   o.invalidRequestBody.Load(),
+		BatchTooLarge:        o.batchTooLarge.Load(),
 	}
 }
 

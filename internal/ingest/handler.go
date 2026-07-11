@@ -17,15 +17,19 @@ const apiKeyHeader = "X-API-Key"
 
 type Config struct {
 	MaxBodyBytes  int64
+	MaxLogEntries int
 	Authenticator Authenticator
 	Observer      Observer
+	RateLimiter   RateLimiter
 	Publisher     Publisher
 }
 
 type Handler struct {
 	maxBodyBytes  int64
+	maxLogEntries int
 	authenticator Authenticator
 	observer      Observer
+	rateLimiter   RateLimiter
 	publisher     Publisher
 }
 
@@ -38,13 +42,19 @@ const (
 )
 
 type Authorization struct {
-	Decision  AuthorizationDecision
-	TenantID  int64
-	ServiceID int64
+	Decision        AuthorizationDecision
+	APIKeyID        int64
+	TenantID        int64
+	ServiceID       int64
+	RateLimitPerSec int
 }
 
 type Authenticator interface {
 	Authorize(context.Context, string, BatchRequest) (Authorization, error)
+}
+
+type RateLimiter interface {
+	Allow(apiKeyID int64, limitPerSec int) bool
 }
 
 type Publisher interface {
@@ -76,10 +86,16 @@ func NewHandler(cfg Config) *Handler {
 	if limit <= 0 {
 		limit = 1 << 20
 	}
+	maxLogs := cfg.MaxLogEntries
+	if maxLogs <= 0 {
+		maxLogs = 1000
+	}
 	return &Handler{
 		maxBodyBytes:  limit,
+		maxLogEntries: maxLogs,
 		authenticator: cfg.Authenticator,
 		observer:      cfg.Observer,
+		rateLimiter:   cfg.RateLimiter,
 		publisher:     cfg.Publisher,
 	}
 }
@@ -107,19 +123,29 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if err := decoder.Decode(&req); err != nil {
 		var maxErr *http.MaxBytesError
 		if errors.As(err, &maxErr) {
+			h.observeAuth(r.Context(), AuthObservation{Outcome: AuthOutcomeRequestBodyTooLarge})
 			writeError(w, http.StatusRequestEntityTooLarge, "request body too large")
 			return
 		}
+		h.observeAuth(r.Context(), AuthObservation{Outcome: AuthOutcomeInvalidRequestBody})
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
 	if decoder.More() {
+		h.observeAuth(r.Context(), AuthObservation{Outcome: AuthOutcomeInvalidRequestBody})
 		writeError(w, http.StatusBadRequest, "request must contain a single JSON object")
 		return
 	}
 
-	if err := req.Validate(); err != nil {
+	if err := req.Validate(h.maxLogEntries); err != nil {
+		if errors.Is(err, errBatchTooLarge) {
+			h.observeAuth(r.Context(), AuthObservation{
+				Outcome: AuthOutcomeBatchTooLarge,
+				Service: req.Service,
+				Env:     req.Env,
+			})
+		}
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -159,6 +185,18 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			Env:     req.Env,
 		})
 		writeError(w, http.StatusUnauthorized, "invalid api key")
+		return
+	}
+	if h.rateLimiter != nil && !h.rateLimiter.Allow(authz.APIKeyID, authz.RateLimitPerSec) {
+		h.observeAuth(r.Context(), AuthObservation{
+			Outcome:   AuthOutcomeRateLimited,
+			Service:   req.Service,
+			Env:       req.Env,
+			TenantID:  authz.TenantID,
+			ServiceID: authz.ServiceID,
+			APIKeyID:  authz.APIKeyID,
+		})
+		writeError(w, http.StatusTooManyRequests, "rate limit exceeded")
 		return
 	}
 
@@ -209,7 +247,9 @@ func toLogsRawEvent(requestID, receivedAt string, req BatchRequest) contracts.Lo
 	}
 }
 
-func (r BatchRequest) Validate() error {
+var errBatchTooLarge = errors.New("batch exceeds max log entries")
+
+func (r BatchRequest) Validate(maxLogEntries int) error {
 	if strings.TrimSpace(r.Service) == "" {
 		return errors.New("service is required")
 	}
@@ -219,8 +259,11 @@ func (r BatchRequest) Validate() error {
 	if len(r.Logs) == 0 {
 		return errors.New("at least one log entry is required")
 	}
-	if len(r.Logs) > 1000 {
-		return errors.New("batch exceeds 1000 log entries")
+	if maxLogEntries <= 0 {
+		maxLogEntries = 1000
+	}
+	if len(r.Logs) > maxLogEntries {
+		return errors.Join(errBatchTooLarge, errors.New("batch exceeds "+itoa(maxLogEntries)+" log entries"))
 	}
 
 	for i, log := range r.Logs {

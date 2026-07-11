@@ -39,8 +39,10 @@ func main() {
 func routes(authenticator ingest.Authenticator, publisher ingest.Publisher, observer *ingest.MetricsObserver) http.Handler {
 	handler := ingest.NewHandler(ingest.Config{
 		MaxBodyBytes:  1 << 20,
+		MaxLogEntries: 1000,
 		Authenticator: authenticator,
 		Observer:      observer,
+		RateLimiter:   ingest.NewMemoryRateLimiter(),
 		Publisher:     publisher,
 	})
 

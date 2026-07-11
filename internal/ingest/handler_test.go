@@ -46,8 +46,10 @@ func TestHandlerAcceptsValidBatch(t *testing.T) {
 	rec := httptest.NewRecorder()
 
 	NewHandler(Config{
+		MaxLogEntries: 1000,
 		Authenticator: stubAuthenticator{authz: Authorization{Decision: AuthorizationAllowed, TenantID: 1, ServiceID: 2}},
 		Observer:      observer,
+		RateLimiter:   allowAllRateLimiter{},
 		Publisher:     publisher,
 	}).ServeHTTP(rec, req)
 
@@ -84,7 +86,7 @@ func TestValidateRejectsBadTimestamp(t *testing.T) {
 		},
 	}
 
-	if err := req.Validate(); err == nil {
+	if err := req.Validate(1000); err == nil {
 		t.Fatal("expected validation error")
 	}
 }
@@ -108,8 +110,10 @@ func TestHandlerReturnsServiceUnavailableWhenPublishFails(t *testing.T) {
 	observer := &stubObserver{}
 
 	NewHandler(Config{
+		MaxLogEntries: 1000,
 		Authenticator: stubAuthenticator{authz: Authorization{Decision: AuthorizationAllowed, TenantID: 1, ServiceID: 2}},
 		Observer:      observer,
+		RateLimiter:   allowAllRateLimiter{},
 		Publisher:     &stubPublisher{err: errors.New("nats unavailable")},
 	}).ServeHTTP(rec, req)
 
@@ -129,8 +133,10 @@ func TestHandlerRejectsInvalidAPIKey(t *testing.T) {
 	observer := &stubObserver{}
 
 	NewHandler(Config{
+		MaxLogEntries: 1000,
 		Authenticator: stubAuthenticator{authz: Authorization{Decision: AuthorizationInvalid}},
 		Observer:      observer,
+		RateLimiter:   allowAllRateLimiter{},
 		Publisher:     &stubPublisher{},
 	}).ServeHTTP(rec, req)
 
@@ -150,8 +156,10 @@ func TestHandlerReturnsServiceUnavailableWhenAuthFails(t *testing.T) {
 	observer := &stubObserver{}
 
 	NewHandler(Config{
+		MaxLogEntries: 1000,
 		Authenticator: stubAuthenticator{err: errors.New("postgres unavailable")},
 		Observer:      observer,
+		RateLimiter:   allowAllRateLimiter{},
 		Publisher:     &stubPublisher{},
 	}).ServeHTTP(rec, req)
 
@@ -171,8 +179,10 @@ func TestHandlerRejectsUnauthorizedServiceScope(t *testing.T) {
 	observer := &stubObserver{}
 
 	NewHandler(Config{
+		MaxLogEntries: 1000,
 		Authenticator: stubAuthenticator{authz: Authorization{Decision: AuthorizationForbidden, TenantID: 1}},
 		Observer:      observer,
+		RateLimiter:   allowAllRateLimiter{},
 		Publisher:     &stubPublisher{},
 	}).ServeHTTP(rec, req)
 
@@ -181,6 +191,76 @@ func TestHandlerRejectsUnauthorizedServiceScope(t *testing.T) {
 	}
 	if len(observer.observations) != 1 || observer.observations[0].Outcome != AuthOutcomeForbiddenScope {
 		t.Fatalf("expected forbidden_scope observation, got %#v", observer.observations)
+	}
+}
+
+func TestHandlerRejectsRateLimitedAPIKey(t *testing.T) {
+	body := `{"service":"checkout","env":"prod","logs":[{"timestamp":"2026-07-07T16:00:00Z","level":"info","message":"booting"}]}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/logs", bytes.NewBufferString(body))
+	req.Header.Set(apiKeyHeader, "local-dev-key")
+	rec := httptest.NewRecorder()
+	observer := &stubObserver{}
+
+	NewHandler(Config{
+		MaxLogEntries: 1000,
+		Authenticator: stubAuthenticator{authz: Authorization{Decision: AuthorizationAllowed, APIKeyID: 10, TenantID: 1, ServiceID: 2, RateLimitPerSec: 1}},
+		Observer:      observer,
+		RateLimiter:   denyAllRateLimiter{},
+		Publisher:     &stubPublisher{},
+	}).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected 429, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if len(observer.observations) != 2 || observer.observations[1].Outcome != AuthOutcomeRateLimited {
+		t.Fatalf("expected rate_limited observation after authorize, got %#v", observer.observations)
+	}
+}
+
+func TestHandlerRejectsTooManyLogsForConfiguredLimit(t *testing.T) {
+	body := `{"service":"checkout","env":"prod","logs":[{"timestamp":"2026-07-07T16:00:00Z","level":"info","message":"one"},{"timestamp":"2026-07-07T16:00:01Z","level":"info","message":"two"}]}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/logs", bytes.NewBufferString(body))
+	req.Header.Set(apiKeyHeader, "local-dev-key")
+	rec := httptest.NewRecorder()
+	observer := &stubObserver{}
+
+	NewHandler(Config{
+		MaxLogEntries: 1,
+		Authenticator: stubAuthenticator{authz: Authorization{Decision: AuthorizationAllowed, APIKeyID: 10, TenantID: 1, ServiceID: 2, RateLimitPerSec: 100}},
+		Observer:      observer,
+		RateLimiter:   allowAllRateLimiter{},
+		Publisher:     &stubPublisher{},
+	}).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if len(observer.observations) != 1 || observer.observations[0].Outcome != AuthOutcomeBatchTooLarge {
+		t.Fatalf("expected batch_too_large observation, got %#v", observer.observations)
+	}
+}
+
+func TestHandlerRejectsTooLargeRequestBody(t *testing.T) {
+	body := `{"service":"checkout","env":"prod","logs":[{"timestamp":"2026-07-07T16:00:00Z","level":"info","message":"` + string(bytes.Repeat([]byte("x"), 64)) + `"}]}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/logs", bytes.NewBufferString(body))
+	req.Header.Set(apiKeyHeader, "local-dev-key")
+	rec := httptest.NewRecorder()
+	observer := &stubObserver{}
+
+	NewHandler(Config{
+		MaxBodyBytes:  64,
+		MaxLogEntries: 1000,
+		Authenticator: stubAuthenticator{authz: Authorization{Decision: AuthorizationAllowed}},
+		Observer:      observer,
+		RateLimiter:   allowAllRateLimiter{},
+		Publisher:     &stubPublisher{},
+	}).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("expected 413, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if len(observer.observations) != 1 || observer.observations[0].Outcome != AuthOutcomeRequestBodyTooLarge {
+		t.Fatalf("expected request_body_too_large observation, got %#v", observer.observations)
 	}
 }
 
@@ -198,12 +278,24 @@ type stubObserver struct {
 	observations []AuthObservation
 }
 
+type allowAllRateLimiter struct{}
+
+type denyAllRateLimiter struct{}
+
 func (s stubAuthenticator) Authorize(_ context.Context, _ string, _ BatchRequest) (Authorization, error) {
 	return s.authz, s.err
 }
 
 func (s *stubObserver) ObserveAuth(_ context.Context, obs AuthObservation) {
 	s.observations = append(s.observations, obs)
+}
+
+func (allowAllRateLimiter) Allow(_ int64, _ int) bool {
+	return true
+}
+
+func (denyAllRateLimiter) Allow(_ int64, _ int) bool {
+	return false
 }
 
 func (s *stubPublisher) Publish(_ context.Context, batch contracts.LogsRawEvent) error {

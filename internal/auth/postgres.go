@@ -15,9 +15,10 @@ type PostgresAuthenticator struct {
 }
 
 type apiKeyRecord struct {
-	id        int64
-	tenantID  int64
-	serviceID sql.NullInt64
+	id              int64
+	tenantID        int64
+	serviceID       sql.NullInt64
+	rateLimitPerSec int
 }
 
 func NewPostgresAuthenticator(db *sql.DB) *PostgresAuthenticator {
@@ -45,22 +46,24 @@ func (a *PostgresAuthenticator) Authorize(ctx context.Context, apiKey string, re
 	}
 
 	return ingest.Authorization{
-		Decision:  ingest.AuthorizationAllowed,
-		TenantID:  key.tenantID,
-		ServiceID: serviceID,
+		Decision:        ingest.AuthorizationAllowed,
+		APIKeyID:        key.id,
+		TenantID:        key.tenantID,
+		ServiceID:       serviceID,
+		RateLimitPerSec: key.rateLimitPerSec,
 	}, nil
 }
 
 func (a *PostgresAuthenticator) lookupAPIKey(ctx context.Context, apiKey string) (*apiKeyRecord, error) {
 	const stmt = `
-SELECT id, tenant_id, service_id
+SELECT id, tenant_id, service_id, rate_limit_per_sec
 FROM api_keys
 WHERE key_hash = $1
   AND status = 'active'
 `
 
 	var key apiKeyRecord
-	err := a.db.QueryRowContext(ctx, stmt, hashAPIKey(apiKey)).Scan(&key.id, &key.tenantID, &key.serviceID)
+	err := a.db.QueryRowContext(ctx, stmt, hashAPIKey(apiKey)).Scan(&key.id, &key.tenantID, &key.serviceID, &key.rateLimitPerSec)
 	if err == nil {
 		return &key, nil
 	}
