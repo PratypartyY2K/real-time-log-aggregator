@@ -21,6 +21,37 @@ type JetStreamConsumer struct {
 	sub *nats.Subscription
 }
 
+const consumerRetryDelay = 5 * time.Second
+
+type consumeErrorHandler func(context.Context, error)
+
+type consumableMessage interface {
+	Payload() []byte
+	Ack() error
+	NakWithDelay(time.Duration) error
+	Term() error
+}
+
+type natsConsumableMessage struct {
+	msg *nats.Msg
+}
+
+func (m natsConsumableMessage) Payload() []byte {
+	return m.msg.Data
+}
+
+func (m natsConsumableMessage) Ack() error {
+	return m.msg.Ack()
+}
+
+func (m natsConsumableMessage) NakWithDelay(delay time.Duration) error {
+	return m.msg.NakWithDelay(delay)
+}
+
+func (m natsConsumableMessage) Term() error {
+	return m.msg.Term()
+}
+
 func ConnectJetStream(url, streamName, subject string) (*nats.Conn, *JetStreamPublisher, error) {
 	nc, err := nats.Connect(url)
 	if err != nil {
@@ -95,7 +126,7 @@ func (p *JetStreamPublisher) Publish(ctx context.Context, event contracts.LogsRa
 	return nil
 }
 
-func (c *JetStreamConsumer) Consume(ctx context.Context, handler func(context.Context, contracts.LogsRawEvent) error) error {
+func (c *JetStreamConsumer) Consume(ctx context.Context, handler func(context.Context, contracts.LogsRawEvent) error, onError consumeErrorHandler) error {
 	for {
 		select {
 		case <-ctx.Done():
@@ -112,20 +143,46 @@ func (c *JetStreamConsumer) Consume(ctx context.Context, handler func(context.Co
 		}
 
 		for _, msg := range msgs {
-			var event contracts.LogsRawEvent
-			if err := json.Unmarshal(msg.Data, &event); err != nil {
-				_ = msg.Term()
-				return fmt.Errorf("decode message: %w", err)
-			}
-
-			if err := handler(ctx, event); err != nil {
+			if err := consumeMessage(ctx, natsConsumableMessage{msg: msg}, handler, onError); err != nil {
 				return err
 			}
-
-			if err := msg.Ack(); err != nil {
-				return fmt.Errorf("ack message: %w", err)
-			}
 		}
+	}
+}
+
+func consumeMessage(
+	ctx context.Context,
+	msg consumableMessage,
+	handler func(context.Context, contracts.LogsRawEvent) error,
+	onError consumeErrorHandler,
+) error {
+	var event contracts.LogsRawEvent
+	if err := json.Unmarshal(msg.Payload(), &event); err != nil {
+		if termErr := msg.Term(); termErr != nil {
+			return fmt.Errorf("term invalid message: %w", termErr)
+		}
+		reportConsumeError(ctx, onError, fmt.Errorf("decode message: %w", err))
+		return nil
+	}
+
+	if err := handler(ctx, event); err != nil {
+		if nakErr := msg.NakWithDelay(consumerRetryDelay); nakErr != nil {
+			return fmt.Errorf("nak message for retry: %w", nakErr)
+		}
+		reportConsumeError(ctx, onError, fmt.Errorf("handle message: %w", err))
+		return nil
+	}
+
+	if err := msg.Ack(); err != nil {
+		return fmt.Errorf("ack message: %w", err)
+	}
+
+	return nil
+}
+
+func reportConsumeError(ctx context.Context, onError consumeErrorHandler, err error) {
+	if onError != nil {
+		onError(ctx, err)
 	}
 }
 

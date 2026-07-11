@@ -21,6 +21,8 @@ func Run(ctx context.Context, logger app.Logger, cfg config.Config) error {
 
 	return consumer.Consume(ctx, func(ctx context.Context, batch contracts.LogsRawEvent) error {
 		return handleBatch(ctx, logger, batch)
+	}, func(_ context.Context, err error) {
+		logger.Error("processor failed to handle batch", "error", err)
 	})
 }
 
