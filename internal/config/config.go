@@ -23,7 +23,7 @@ func Load(defaultServiceName, defaultHTTPAddr string) Config {
 		NATSStream:    envOrDefault("NATS_STREAM", "LOGS"),
 		NATSSubject:   envOrDefault("NATS_SUBJECT", "logs.raw"),
 		NATSDurable:   envOrDefault("NATS_DURABLE", defaultServiceName),
-		PostgresDSN:   envOrDefault("POSTGRES_DSN", "postgres://logagg:logagg@localhost:5432/logagg?sslmode=disable"),
+		PostgresDSN:   envOrDefault("POSTGRES_DSN", "postgres://logagg:logagg@localhost:55432/logagg?sslmode=disable"),
 		ClickHouseDSN: envOrDefault("CLICKHOUSE_DSN", "http://localhost:8123"),
 	}
 }
