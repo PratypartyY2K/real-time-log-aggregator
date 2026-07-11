@@ -83,7 +83,7 @@ Leave `api_keys.service_id` as `NULL` for a tenant-wide key, or set it to a `ser
 
 ## JetStream contract
 
-The `logs.raw` stream contract is defined explicitly in [docs/jetstream.md](/Users/pratyushkumar/Documents/Real-time%20Log%20Aggregator/docs/jetstream.md). Runtime services validate and bind to pre-provisioned JetStream state; they do not create the stream implicitly.
+The `logs.raw` stream contract is defined explicitly in [docs/jetstream.md](/docs/jetstream.md). Runtime services validate and bind to pre-provisioned JetStream state; they do not create the stream implicitly.
 
 ## MVP next steps
 
