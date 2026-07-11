@@ -31,6 +31,11 @@ func handleBatch(_ context.Context, logger app.Logger, batch contracts.LogsRawEv
 		return fmt.Errorf("invalid logs.raw event: %w", err)
 	}
 
+	normalized, err := normalizeBatch(batch)
+	if err != nil {
+		return fmt.Errorf("normalize logs.raw event: %w", err)
+	}
+
 	logger.Info(
 		"processor received batch",
 		"request_id", batch.RequestID,
@@ -40,6 +45,7 @@ func handleBatch(_ context.Context, logger app.Logger, batch contracts.LogsRawEv
 		"env", batch.Env,
 		"source", batch.Source,
 		"log_count", len(batch.Logs),
+		"normalized_log_count", len(normalized),
 	)
 
 	return nil
