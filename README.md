@@ -12,7 +12,7 @@ A portfolio project focused on reliability engineering and distributed systems f
 
 - `ingest-api`: receives logs over HTTP and publishes batches to the stream
 - `processor`: consumes streamed logs, normalizes them, and writes processed records to ClickHouse
-- `query-api`: serves health endpoints now and will become the read path for logs, alerts, and metadata
+- `query-api`: serves health endpoints and ClickHouse-backed log reads, and will expand into alerts and metadata
 - `NATS JetStream`: durable buffering, replay, and backpressure boundary
 - `ClickHouse`: analytical store for logs
 - `Postgres`: control-plane metadata and alert state
