@@ -11,7 +11,14 @@ import (
 )
 
 func Run(ctx context.Context, logger app.Logger, cfg config.Config) error {
-	nc, consumer, err := stream.ConnectJetStreamConsumer(cfg.NATSURL, cfg.NATSStream, cfg.NATSSubject, cfg.NATSDurable)
+	nc, consumer, err := stream.ConnectJetStreamConsumer(
+		cfg.NATSURL,
+		cfg.NATSStream,
+		cfg.NATSSubject,
+		cfg.NATSDLQSubject,
+		cfg.NATSDurable,
+		cfg.NATSMaxDeliver,
+	)
 	if err != nil {
 		return err
 	}
@@ -30,12 +37,12 @@ func Run(ctx context.Context, logger app.Logger, cfg config.Config) error {
 
 func handleBatch(ctx context.Context, logger app.Logger, writer LogWriter, batch contracts.LogsRawEvent) error {
 	if err := batch.Validate(); err != nil {
-		return fmt.Errorf("invalid logs.raw event: %w", err)
+		return stream.MarkPoisonBatch(fmt.Errorf("invalid logs.raw event: %w", err))
 	}
 
 	normalized, err := normalizeBatch(batch)
 	if err != nil {
-		return fmt.Errorf("normalize logs.raw event: %w", err)
+		return stream.MarkPoisonBatch(fmt.Errorf("normalize logs.raw event: %w", err))
 	}
 	if writer == nil {
 		return fmt.Errorf("processor writer is not configured")
