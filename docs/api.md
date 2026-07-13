@@ -56,3 +56,19 @@ Current behavior:
 
 - returns JSON counters for ingest auth outcomes
 - includes `authorized`, `missing_api_key`, `invalid_api_key`, `forbidden_scope`, `backend_error`, `authenticator_unavailable`, `rate_limited`, `request_body_too_large`, `invalid_request_body`, and `batch_too_large`
+
+## `GET /v1/logs`
+
+Current behavior:
+
+- queries normalized logs from ClickHouse
+- requires `start` and `end` RFC3339 timestamps
+- supports optional exact-match `service` and `level` filters
+- supports optional `limit`, default `100`, max `1000`
+- returns logs ordered by newest `timestamp` first
+
+Example request:
+
+```text
+/v1/logs?start=2026-07-13T17:00:00Z&end=2026-07-13T19:00:00Z&service=checkout&level=error&limit=100
+```
