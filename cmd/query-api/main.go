@@ -7,15 +7,16 @@ import (
 
 	"github.com/PratypartyY2K/real-time-log-aggregator/internal/app"
 	"github.com/PratypartyY2K/real-time-log-aggregator/internal/config"
+	"github.com/PratypartyY2K/real-time-log-aggregator/internal/queryapi"
 )
 
 func main() {
 	cfg := config.Load("query-api", ":8081")
-	service := app.NewHTTPService(cfg, routes(cfg.ServiceName))
+	service := app.NewHTTPService(cfg, routes(cfg.ServiceName, queryapi.NewClickHouseStore(cfg.ClickHouseDSN)))
 	app.Run(service)
 }
 
-func routes(serviceName string) http.Handler {
+func routes(serviceName string, store queryapi.LogStore) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -33,5 +34,6 @@ func routes(serviceName string) http.Handler {
 			"status":  "bootstrap",
 		})
 	})
+	mux.Handle("/v1/logs", queryapi.NewHandler(store))
 	return mux
 }
