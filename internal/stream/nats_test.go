@@ -12,7 +12,7 @@ import (
 
 func TestConsumeMessageAcksSuccessfulHandler(t *testing.T) {
 	msg := &stubConsumableMessage{
-		payload: []byte(`{"schema_version":"logs.raw.v1","request_id":"req-123","received_at":"2026-07-09T20:12:07Z","service":"checkout","env":"prod","source":"app","logs":[{"timestamp":"2026-07-07T16:00:00Z","level":"error","message":"database timeout"}]}`),
+		payload: []byte(`{"schema_version":"logs.raw.v1","request_id":"req-123","received_at":"2026-07-09T20:12:07Z","tenant_id":1,"service":"checkout","env":"prod","source":"app","logs":[{"timestamp":"2026-07-07T16:00:00Z","level":"error","message":"database timeout"}]}`),
 	}
 
 	var handled contracts.LogsRawEvent
@@ -39,7 +39,7 @@ func TestConsumeMessageAcksSuccessfulHandler(t *testing.T) {
 
 func TestConsumeMessageNaksRetryableHandlerError(t *testing.T) {
 	msg := &stubConsumableMessage{
-		payload: []byte(`{"schema_version":"logs.raw.v1","request_id":"req-123","received_at":"2026-07-09T20:12:07Z","service":"checkout","env":"prod","source":"app","logs":[{"timestamp":"2026-07-07T16:00:00Z","level":"error","message":"database timeout"}]}`),
+		payload: []byte(`{"schema_version":"logs.raw.v1","request_id":"req-123","received_at":"2026-07-09T20:12:07Z","tenant_id":1,"service":"checkout","env":"prod","source":"app","logs":[{"timestamp":"2026-07-07T16:00:00Z","level":"error","message":"database timeout"}]}`),
 	}
 
 	var reported error

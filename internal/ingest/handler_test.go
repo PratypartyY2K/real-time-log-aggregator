@@ -68,6 +68,9 @@ func TestHandlerAcceptsValidBatch(t *testing.T) {
 	if publisher.batch.SchemaVersion != contracts.LogsRawSchemaVersion {
 		t.Fatalf("expected schema version %q, got %q", contracts.LogsRawSchemaVersion, publisher.batch.SchemaVersion)
 	}
+	if publisher.batch.TenantID != 1 {
+		t.Fatalf("expected published tenant id 1, got %d", publisher.batch.TenantID)
+	}
 	if len(observer.observations) != 1 || observer.observations[0].Outcome != AuthOutcomeAuthorized {
 		t.Fatalf("expected authorized observation, got %#v", observer.observations)
 	}

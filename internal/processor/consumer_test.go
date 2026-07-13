@@ -2,6 +2,7 @@ package processor
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -11,10 +12,12 @@ import (
 
 func TestHandleBatchAcceptsPublishedBatch(t *testing.T) {
 	logger := &stubLogger{}
+	writer := &stubLogWriter{}
 	batch := contracts.LogsRawEvent{
 		SchemaVersion: contracts.LogsRawSchemaVersion,
 		RequestID:     "req-123",
 		ReceivedAt:    "2026-07-09T20:12:07Z",
+		TenantID:      42,
 		Service:       "checkout",
 		Env:           "prod",
 		Source:        "app",
@@ -27,23 +30,62 @@ func TestHandleBatchAcceptsPublishedBatch(t *testing.T) {
 		},
 	}
 
-	if err := handleBatch(context.Background(), logger, batch); err != nil {
+	if err := handleBatch(context.Background(), logger, writer, batch); err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
 	if logger.infoCalls != 1 {
 		t.Fatalf("expected one info log call, got %d", logger.infoCalls)
 	}
+	if writer.calls != 1 {
+		t.Fatalf("expected one writer call, got %d", writer.calls)
+	}
+	if len(writer.lastBatch) != 1 || writer.lastBatch[0].TenantID != 42 {
+		t.Fatalf("expected tenant id 42 in written records, got %+v", writer.lastBatch)
+	}
 }
 
 func TestHandleBatchRejectsMissingRequestID(t *testing.T) {
 	logger := &stubLogger{}
+	writer := &stubLogWriter{}
 
-	err := handleBatch(context.Background(), logger, contracts.LogsRawEvent{})
+	err := handleBatch(context.Background(), logger, writer, contracts.LogsRawEvent{})
 	if err == nil {
 		t.Fatal("expected error for missing request id")
 	}
 	if logger.infoCalls != 0 {
 		t.Fatalf("expected no info logs, got %d", logger.infoCalls)
+	}
+	if writer.calls != 0 {
+		t.Fatalf("expected no writer calls, got %d", writer.calls)
+	}
+}
+
+func TestHandleBatchReturnsWriterError(t *testing.T) {
+	logger := &stubLogger{}
+	writer := &stubLogWriter{err: errors.New("clickhouse unavailable")}
+	batch := contracts.LogsRawEvent{
+		SchemaVersion: contracts.LogsRawSchemaVersion,
+		RequestID:     "req-123",
+		ReceivedAt:    "2026-07-09T20:12:07Z",
+		TenantID:      42,
+		Service:       "checkout",
+		Env:           "prod",
+		Source:        "app",
+		Logs: []contracts.LogsRawRecord{
+			{
+				Timestamp: "2026-07-07T16:00:00Z",
+				Level:     "error",
+				Message:   "database timeout",
+			},
+		},
+	}
+
+	err := handleBatch(context.Background(), logger, writer, batch)
+	if err == nil || !strings.Contains(err.Error(), "persist normalized logs") {
+		t.Fatalf("expected persist error, got %v", err)
+	}
+	if logger.infoCalls != 0 {
+		t.Fatalf("expected no info logs when write fails, got %d", logger.infoCalls)
 	}
 }
 
@@ -52,6 +94,7 @@ func TestNormalizeBatchNormalizesRecords(t *testing.T) {
 		SchemaVersion: contracts.LogsRawSchemaVersion,
 		RequestID:     "req-123",
 		ReceivedAt:    "2026-07-09T20:12:07.612769-07:00",
+		TenantID:      42,
 		Service:       " Checkout ",
 		Env:           " PROD ",
 		Source:        " App ",
@@ -82,6 +125,9 @@ func TestNormalizeBatchNormalizesRecords(t *testing.T) {
 	expectedTimestamp := time.Date(2026, 7, 7, 23, 0, 0, 0, time.UTC)
 	if !record.Timestamp.Equal(expectedTimestamp) {
 		t.Fatalf("expected timestamp %s, got %s", expectedTimestamp, record.Timestamp)
+	}
+	if record.TenantID != 42 {
+		t.Fatalf("expected tenant id 42, got %d", record.TenantID)
 	}
 	if record.Service != "checkout" {
 		t.Fatalf("expected service checkout, got %q", record.Service)
@@ -123,6 +169,7 @@ func TestNormalizeBatchFallsBackToReceivedAtForMissingTimestamp(t *testing.T) {
 		SchemaVersion: contracts.LogsRawSchemaVersion,
 		RequestID:     "req-123",
 		ReceivedAt:    "2026-07-09T20:12:07.612769Z",
+		TenantID:      42,
 		Service:       "checkout",
 		Env:           "prod",
 		Source:        "app",
@@ -148,6 +195,7 @@ func TestNormalizeBatchRejectsInvalidRecordTimestamp(t *testing.T) {
 		SchemaVersion: contracts.LogsRawSchemaVersion,
 		RequestID:     "req-123",
 		ReceivedAt:    "2026-07-09T20:12:07Z",
+		TenantID:      42,
 		Service:       "checkout",
 		Env:           "prod",
 		Source:        "app",
@@ -174,6 +222,7 @@ func TestNormalizeBatchProducesStableFingerprint(t *testing.T) {
 		SchemaVersion: contracts.LogsRawSchemaVersion,
 		RequestID:     "req-123",
 		ReceivedAt:    "2026-07-09T20:12:07Z",
+		TenantID:      42,
 		Service:       "checkout",
 		Env:           "prod",
 		Source:        "app",
@@ -217,3 +266,15 @@ func (l *stubLogger) Info(_ string, _ ...any) {
 }
 
 func (l *stubLogger) Error(_ string, _ ...any) {}
+
+type stubLogWriter struct {
+	lastBatch []NormalizedLogRecord
+	calls     int
+	err       error
+}
+
+func (w *stubLogWriter) WriteBatch(_ context.Context, batch []NormalizedLogRecord) error {
+	w.calls++
+	w.lastBatch = append([]NormalizedLogRecord(nil), batch...)
+	return w.err
+}
