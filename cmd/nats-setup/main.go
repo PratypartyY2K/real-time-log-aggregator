@@ -9,7 +9,14 @@ import (
 
 func main() {
 	cfg := config.Load("processor", "")
-	if err := stream.SetupJetStream(cfg.NATSURL, cfg.NATSStream, cfg.NATSSubject, cfg.NATSDurable); err != nil {
+	if err := stream.SetupJetStream(
+		cfg.NATSURL,
+		cfg.NATSStream,
+		cfg.NATSSubject,
+		cfg.NATSDLQSubject,
+		cfg.NATSDurable,
+		cfg.NATSMaxDeliver,
+	); err != nil {
 		log.Fatal(err)
 	}
 }
