@@ -17,16 +17,18 @@ func Run(ctx context.Context, logger app.Logger, cfg config.Config) error {
 	}
 	defer nc.Drain()
 
+	writer := NewClickHouseWriter(cfg.ClickHouseDSN)
+
 	logger.Info("processor consumer started", "stream", cfg.NATSStream, "subject", cfg.NATSSubject, "durable", cfg.NATSDurable)
 
 	return consumer.Consume(ctx, func(ctx context.Context, batch contracts.LogsRawEvent) error {
-		return handleBatch(ctx, logger, batch)
+		return handleBatch(ctx, logger, writer, batch)
 	}, func(_ context.Context, err error) {
 		logger.Error("processor failed to handle batch", "error", err)
 	})
 }
 
-func handleBatch(_ context.Context, logger app.Logger, batch contracts.LogsRawEvent) error {
+func handleBatch(ctx context.Context, logger app.Logger, writer LogWriter, batch contracts.LogsRawEvent) error {
 	if err := batch.Validate(); err != nil {
 		return fmt.Errorf("invalid logs.raw event: %w", err)
 	}
@@ -35,10 +37,17 @@ func handleBatch(_ context.Context, logger app.Logger, batch contracts.LogsRawEv
 	if err != nil {
 		return fmt.Errorf("normalize logs.raw event: %w", err)
 	}
+	if writer == nil {
+		return fmt.Errorf("processor writer is not configured")
+	}
+	if err := writer.WriteBatch(ctx, normalized); err != nil {
+		return fmt.Errorf("persist normalized logs: %w", err)
+	}
 
 	logger.Info(
-		"processor received batch",
+		"processor persisted batch",
 		"request_id", batch.RequestID,
+		"tenant_id", batch.TenantID,
 		"received_at", batch.ReceivedAt,
 		"schema_version", batch.SchemaVersion,
 		"service", batch.Service,
