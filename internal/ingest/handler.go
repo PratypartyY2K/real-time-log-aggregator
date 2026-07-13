@@ -206,7 +206,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	requestID := randomID()
-	event := toLogsRawEvent(requestID, time.Now().UTC().Format(time.RFC3339Nano), req)
+	event := toLogsRawEvent(requestID, time.Now().UTC().Format(time.RFC3339Nano), authz.TenantID, req)
 	if err := h.publisher.Publish(r.Context(), event); err != nil {
 		writeError(w, http.StatusServiceUnavailable, "failed to queue logs")
 		return
@@ -225,7 +225,7 @@ func (h *Handler) observeAuth(ctx context.Context, obs AuthObservation) {
 	}
 }
 
-func toLogsRawEvent(requestID, receivedAt string, req BatchRequest) contracts.LogsRawEvent {
+func toLogsRawEvent(requestID, receivedAt string, tenantID int64, req BatchRequest) contracts.LogsRawEvent {
 	logs := make([]contracts.LogsRawRecord, 0, len(req.Logs))
 	for _, record := range req.Logs {
 		logs = append(logs, contracts.LogsRawRecord{
@@ -240,6 +240,7 @@ func toLogsRawEvent(requestID, receivedAt string, req BatchRequest) contracts.Lo
 		SchemaVersion: contracts.LogsRawSchemaVersion,
 		RequestID:     requestID,
 		ReceivedAt:    receivedAt,
+		TenantID:      uint64(tenantID),
 		Service:       req.Service,
 		Env:           req.Env,
 		Source:        req.Source,

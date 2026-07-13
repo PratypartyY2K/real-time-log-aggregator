@@ -8,6 +8,7 @@ type LogsRawEvent struct {
 	SchemaVersion string          `json:"schema_version"`
 	RequestID     string          `json:"request_id"`
 	ReceivedAt    string          `json:"received_at"`
+	TenantID      uint64          `json:"tenant_id"`
 	Service       string          `json:"service"`
 	Env           string          `json:"env"`
 	Source        string          `json:"source"`
@@ -30,6 +31,9 @@ func (e LogsRawEvent) Validate() error {
 	}
 	if e.ReceivedAt == "" {
 		return errors.New("received_at is required")
+	}
+	if e.TenantID == 0 {
+		return errors.New("tenant_id is required")
 	}
 	if e.Service == "" {
 		return errors.New("service is required")

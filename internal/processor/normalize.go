@@ -14,6 +14,7 @@ import (
 
 type NormalizedLogRecord struct {
 	Timestamp    time.Time
+	TenantID     uint64
 	Service      string
 	Environment  string
 	Source       string
@@ -39,7 +40,7 @@ func normalizeBatch(batch contracts.LogsRawEvent) ([]NormalizedLogRecord, error)
 
 	records := make([]NormalizedLogRecord, 0, len(batch.Logs))
 	for _, record := range batch.Logs {
-		normalized, err := normalizeRecord(batch.RequestID, receivedAt, service, environment, source, record)
+		normalized, err := normalizeRecord(batch.RequestID, batch.TenantID, receivedAt, service, environment, source, record)
 		if err != nil {
 			return nil, err
 		}
@@ -51,6 +52,7 @@ func normalizeBatch(batch contracts.LogsRawEvent) ([]NormalizedLogRecord, error)
 
 func normalizeRecord(
 	requestID string,
+	tenantID uint64,
 	receivedAt time.Time,
 	service, environment, source string,
 	record contracts.LogsRawRecord,
@@ -77,6 +79,7 @@ func normalizeRecord(
 
 	return NormalizedLogRecord{
 		Timestamp:    timestamp,
+		TenantID:     tenantID,
 		Service:      service,
 		Environment:  environment,
 		Source:       source,
