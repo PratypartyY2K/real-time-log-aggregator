@@ -54,6 +54,8 @@ go run ./cmd/processor
 - `HTTP_ADDR`
 - `LOG_LEVEL`
 - `NATS_URL`
+- `NATS_DLQ_SUBJECT`
+- `NATS_MAX_DELIVER`
 - `POSTGRES_DSN`
 - `CLICKHOUSE_DSN`
 

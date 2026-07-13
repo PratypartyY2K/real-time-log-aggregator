@@ -38,10 +38,17 @@ Notes:
 
 - Stream: `LOGS`
 - Subject: `logs.raw`
+- Dead-letter subject: `logs.raw.dlq`
 - Durable consumer: `processor`
 
 `ingest-api` expects the stream to already exist and include `logs.raw`.
-`processor` expects the durable consumer to already exist and bind to `logs.raw`.
+`processor` expects the stream to include both `logs.raw` and `logs.raw.dlq`, and the durable consumer to bind to `logs.raw`.
+
+## Dead-letter handling
+
+- Malformed `logs.raw` payloads are terminated immediately and published to `logs.raw.dlq`.
+- Poison batches that fail contract validation or normalization are terminated immediately and published to `logs.raw.dlq`.
+- Retryable processor failures are negatively acknowledged until `NATS_MAX_DELIVER` is reached, then the batch is published to `logs.raw.dlq` and terminated.
 
 ## Bootstrap
 
