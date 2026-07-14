@@ -37,7 +37,7 @@ func NewHTTPService(cfg config.Config, handler http.Handler) *HTTPService {
 		logger: logger,
 		server: &http.Server{
 			Addr:              cfg.HTTPAddr,
-			Handler:           handler,
+			Handler:           logging.Middleware(logger, cfg.ServiceName, handler),
 			ReadHeaderTimeout: 5 * time.Second,
 		},
 	}

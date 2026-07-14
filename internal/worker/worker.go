@@ -44,7 +44,7 @@ func New(cfg config.Config, runner Runner, options ...Option) *Service {
 
 func (s *Service) Run(ctx context.Context) error {
 	s.logger.Info("worker service starting", "service", s.cfg.ServiceName)
-	metrics.StartServer(ctx, s.cfg.MetricsAddr, s.metricsHandler, func(err error) {
+	metrics.StartServer(ctx, s.cfg.MetricsAddr, logging.Middleware(s.logger, s.cfg.ServiceName, s.metricsHandler), func(err error) {
 		s.logger.Error("worker metrics server failed", "service", s.cfg.ServiceName, "addr", s.cfg.MetricsAddr, "error", err)
 	})
 	return s.run(ctx, s.logger)
