@@ -57,6 +57,12 @@ Current behavior:
 - returns JSON counters for ingest auth outcomes
 - includes `authorized`, `missing_api_key`, `invalid_api_key`, `forbidden_scope`, `backend_error`, `authenticator_unavailable`, `rate_limited`, `request_body_too_large`, `invalid_request_body`, and `batch_too_large`
 
+## `GET /metrics`
+
+Current behavior:
+
+- exposes Prometheus-compatible metrics for HTTP traffic and ingest auth outcomes
+
 ## `GET /v1/logs`
 
 Current behavior:

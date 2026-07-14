@@ -5,7 +5,11 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	stdstrconv "strconv"
+	"strings"
 	"sync/atomic"
+
+	commonmetrics "github.com/PratypartyY2K/real-time-log-aggregator/internal/metrics"
 )
 
 type AuthOutcome string
@@ -131,4 +135,32 @@ func (o *MetricsObserver) Snapshot() MetricsSnapshot {
 func (o *MetricsObserver) ServeHTTP(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(o.Snapshot())
+}
+
+func (o *MetricsObserver) WritePrometheus(body *strings.Builder) {
+	if o == nil {
+		return
+	}
+
+	commonmetrics.WriteMetricHelp(body, "logagg_ingest_auth_outcomes_total", "Total ingest auth and validation outcomes.", "counter")
+
+	for _, sample := range []struct {
+		outcome string
+		value   int64
+	}{
+		{outcome: string(AuthOutcomeAuthorized), value: o.authorized.Load()},
+		{outcome: string(AuthOutcomeMissingAPIKey), value: o.missingAPIKey.Load()},
+		{outcome: string(AuthOutcomeInvalidAPIKey), value: o.invalidAPIKey.Load()},
+		{outcome: string(AuthOutcomeForbiddenScope), value: o.forbiddenScope.Load()},
+		{outcome: string(AuthOutcomeBackendError), value: o.backendError.Load()},
+		{outcome: string(AuthOutcomeAuthenticatorMissing), value: o.authenticatorMissing.Load()},
+		{outcome: string(AuthOutcomeRateLimited), value: o.rateLimited.Load()},
+		{outcome: string(AuthOutcomeRequestBodyTooLarge), value: o.requestBodyTooLarge.Load()},
+		{outcome: string(AuthOutcomeInvalidRequestBody), value: o.invalidRequestBody.Load()},
+		{outcome: string(AuthOutcomeBatchTooLarge), value: o.batchTooLarge.Load()},
+	} {
+		commonmetrics.WriteMetricLine(body, "logagg_ingest_auth_outcomes_total", map[string]string{
+			"outcome": sample.outcome,
+		}, stdstrconv.FormatInt(sample.value, 10))
+	}
 }

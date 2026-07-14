@@ -7,6 +7,7 @@ import (
 
 	"github.com/PratypartyY2K/real-time-log-aggregator/internal/app"
 	"github.com/PratypartyY2K/real-time-log-aggregator/internal/config"
+	"github.com/PratypartyY2K/real-time-log-aggregator/internal/metrics"
 	"github.com/PratypartyY2K/real-time-log-aggregator/internal/queryapi"
 )
 
@@ -17,23 +18,27 @@ func main() {
 }
 
 func routes(serviceName string, store queryapi.LogStore) http.Handler {
+	httpMetrics := metrics.NewHTTPCollector(serviceName)
+	metricsHandler := metrics.NewHandler(serviceName, httpMetrics)
+
 	mux := http.NewServeMux()
-	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
+	mux.Handle("/metrics", metricsHandler)
+	mux.Handle("/healthz", httpMetrics.Middleware("/healthz", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
-	})
-	mux.HandleFunc("/readyz", func(w http.ResponseWriter, _ *http.Request) {
+	})))
+	mux.Handle("/readyz", httpMetrics.Middleware("/readyz", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ready"))
-	})
-	mux.HandleFunc("/v1/status", func(w http.ResponseWriter, _ *http.Request) {
+	})))
+	mux.Handle("/v1/status", httpMetrics.Middleware("/v1/status", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"service": serviceName,
 			"time":    time.Now().UTC(),
 			"status":  "bootstrap",
 		})
-	})
-	mux.Handle("/v1/logs", queryapi.NewHandler(store))
+	})))
+	mux.Handle("/v1/logs", httpMetrics.Middleware("/v1/logs", queryapi.NewHandler(store)))
 	return mux
 }

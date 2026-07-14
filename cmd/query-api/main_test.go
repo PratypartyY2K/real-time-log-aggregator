@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -30,6 +31,28 @@ func TestRoutesExposeQueryEndpoint(t *testing.T) {
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestRoutesExposePrometheusMetrics(t *testing.T) {
+	handler := routes("query-api", &stubLogStore{})
+
+	logReq := httptest.NewRequest(http.MethodGet, "/v1/logs?start=2026-07-13T17:00:00Z&end=2026-07-13T19:00:00Z", nil)
+	logRec := httptest.NewRecorder()
+	handler.ServeHTTP(logRec, logReq)
+
+	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if got := rec.Header().Get("Content-Type"); got != "text/plain; version=0.0.4; charset=utf-8" {
+		t.Fatalf("unexpected content type: %s", got)
+	}
+	if body := rec.Body.String(); !strings.Contains(body, `logagg_http_requests_total{`) || !strings.Contains(body, `route="/v1/logs"`) {
+		t.Fatalf("expected query metrics payload, got %s", body)
 	}
 }
 
