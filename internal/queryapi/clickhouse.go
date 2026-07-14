@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	commonclickhouse "github.com/PratypartyY2K/real-time-log-aggregator/internal/clickhouse"
 )
 
 type ClickHouseStore struct {
@@ -43,6 +45,13 @@ func NewClickHouseStore(dsn string) *ClickHouseStore {
 			Timeout: 10 * time.Second,
 		},
 	}
+}
+
+func (s *ClickHouseStore) Check(ctx context.Context) error {
+	if s == nil {
+		return fmt.Errorf("clickhouse store is not configured")
+	}
+	return commonclickhouse.Probe(ctx, s.url, s.client)
 }
 
 func (s *ClickHouseStore) QueryLogs(ctx context.Context, filter QueryFilter) ([]LogRecord, error) {

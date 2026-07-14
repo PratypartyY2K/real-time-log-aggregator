@@ -90,6 +90,32 @@ func ConnectJetStream(url, streamName, subject string) (*nats.Conn, *JetStreamPu
 	}, nil
 }
 
+func CheckConnection(_ context.Context, nc *nats.Conn) error {
+	if nc == nil {
+		return fmt.Errorf("nats connection is nil")
+	}
+	if !nc.IsConnected() {
+		return fmt.Errorf("nats is not connected")
+	}
+	if err := nc.FlushTimeout(2 * time.Second); err != nil {
+		return fmt.Errorf("flush nats connection: %w", err)
+	}
+	if err := nc.LastError(); err != nil {
+		return fmt.Errorf("nats connection error: %w", err)
+	}
+	return nil
+}
+
+func CheckURL(_ context.Context, url string) error {
+	nc, err := nats.Connect(url, nats.Timeout(2*time.Second))
+	if err != nil {
+		return fmt.Errorf("connect to nats: %w", err)
+	}
+	defer nc.Close()
+
+	return CheckConnection(context.Background(), nc)
+}
+
 func ConnectJetStreamConsumer(url, streamName, subject, dlqSubject, durable string, maxDeliver int) (*nats.Conn, *JetStreamConsumer, error) {
 	nc, err := nats.Connect(url)
 	if err != nil {

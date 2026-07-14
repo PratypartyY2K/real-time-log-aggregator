@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	commonclickhouse "github.com/PratypartyY2K/real-time-log-aggregator/internal/clickhouse"
 )
 
 type LogWriter interface {
@@ -43,6 +45,13 @@ func NewClickHouseWriter(dsn string) *ClickHouseWriter {
 			Timeout: 10 * time.Second,
 		},
 	}
+}
+
+func (w *ClickHouseWriter) Check(ctx context.Context) error {
+	if w == nil {
+		return fmt.Errorf("clickhouse writer is not configured")
+	}
+	return commonclickhouse.Probe(ctx, w.url, w.client)
 }
 
 func (w *ClickHouseWriter) WriteBatch(ctx context.Context, records []NormalizedLogRecord) error {
