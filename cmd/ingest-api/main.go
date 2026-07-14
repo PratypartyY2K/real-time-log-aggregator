@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"log"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 	"github.com/PratypartyY2K/real-time-log-aggregator/internal/ingest"
 	"github.com/PratypartyY2K/real-time-log-aggregator/internal/logging"
 	"github.com/PratypartyY2K/real-time-log-aggregator/internal/metrics"
+	"github.com/PratypartyY2K/real-time-log-aggregator/internal/readiness"
 	"github.com/PratypartyY2K/real-time-log-aggregator/internal/stream"
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
@@ -33,13 +35,19 @@ func main() {
 	defer nc.Drain()
 
 	observer := ingest.NewMetricsObserver(logging.New(cfg.LogLevel))
-	service := app.NewHTTPService(cfg, routes(auth.NewPostgresAuthenticator(db), publisher, observer))
+	service := app.NewHTTPService(cfg, routes(cfg.NATSURL, db, auth.NewPostgresAuthenticator(db), publisher, observer))
 	app.Run(service)
 }
 
-func routes(authenticator ingest.Authenticator, publisher ingest.Publisher, observer *ingest.MetricsObserver) http.Handler {
+func routes(natsURL string, db *sql.DB, authenticator ingest.Authenticator, publisher ingest.Publisher, observer *ingest.MetricsObserver) http.Handler {
 	httpMetrics := metrics.NewHTTPCollector("ingest-api")
 	metricsHandler := metrics.NewHandler("ingest-api", httpMetrics, observer)
+	readyHandler := readiness.NewHandler(
+		readiness.PostgresChecker("postgres", db),
+		readiness.Func("nats", func(ctx context.Context) error {
+			return stream.CheckURL(ctx, natsURL)
+		}),
+	)
 
 	handler := ingest.NewHandler(ingest.Config{
 		MaxBodyBytes:  1 << 20,
@@ -57,10 +65,7 @@ func routes(authenticator ingest.Authenticator, publisher ingest.Publisher, obse
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})))
-	mux.Handle("/readyz", httpMetrics.Middleware("/readyz", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("ready"))
-	})))
+	mux.Handle("/readyz", httpMetrics.Middleware("/readyz", readyHandler))
 	mux.Handle("/v1/logs", httpMetrics.Middleware("/v1/logs", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
