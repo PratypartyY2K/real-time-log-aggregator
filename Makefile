@@ -1,9 +1,12 @@
 GO ?= go
 
-.PHONY: build run-ingest run-query run-processor fmt test
+.PHONY: build migrate-postgres run-ingest run-query run-processor fmt test
 
 build:
 	$(GO) build ./...
+
+migrate-postgres:
+	$(GO) run ./cmd/postgres-migrate
 
 run-ingest:
 	$(GO) run ./cmd/ingest-api
