@@ -26,7 +26,7 @@ internal/config/        env-driven configuration
 internal/ingest/        ingestion request model and handler
 internal/logging/       structured logger
 internal/worker/        background worker scaffold
-db/                     bootstrap SQL for Postgres and ClickHouse
+db/                     versioned SQL migrations and bootstrap schema
 deployments/local/      Docker Compose and Prometheus
 docs/                   architecture and milestone notes
 ```
@@ -39,7 +39,13 @@ docs/                   architecture and milestone notes
 docker compose -f deployments/local/docker-compose.yml up -d
 ```
 
-2. Run a service:
+2. Apply Postgres migrations:
+
+```bash
+go run ./cmd/postgres-migrate
+```
+
+3. Run a service:
 
 ```bash
 go run ./cmd/nats-setup
@@ -47,6 +53,8 @@ go run ./cmd/ingest-api
 go run ./cmd/query-api
 go run ./cmd/processor
 ```
+
+`make migrate-postgres` runs the same migration command through the project `Makefile`.
 
 ## Environment variables
 
