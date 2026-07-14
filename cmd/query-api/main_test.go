@@ -56,6 +56,21 @@ func TestRoutesExposePrometheusMetrics(t *testing.T) {
 	}
 }
 
+func TestRoutesExposeReadiness(t *testing.T) {
+	handler := routes("query-api", &stubLogStore{})
+
+	req := httptest.NewRequest(http.MethodGet, "/readyz", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"status":"ready"`) {
+		t.Fatalf("expected readiness payload, got %s", rec.Body.String())
+	}
+}
+
 type stubLogStore struct {
 	logs []queryapi.LogRecord
 	err  error
@@ -63,4 +78,8 @@ type stubLogStore struct {
 
 func (s *stubLogStore) QueryLogs(context.Context, queryapi.QueryFilter) ([]queryapi.LogRecord, error) {
 	return s.logs, s.err
+}
+
+func (s *stubLogStore) Check(context.Context) error {
+	return s.err
 }

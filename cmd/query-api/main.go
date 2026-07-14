@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"github.com/PratypartyY2K/real-time-log-aggregator/internal/config"
 	"github.com/PratypartyY2K/real-time-log-aggregator/internal/metrics"
 	"github.com/PratypartyY2K/real-time-log-aggregator/internal/queryapi"
+	"github.com/PratypartyY2K/real-time-log-aggregator/internal/readiness"
 )
 
 func main() {
@@ -17,9 +19,17 @@ func main() {
 	app.Run(service)
 }
 
-func routes(serviceName string, store queryapi.LogStore) http.Handler {
+type readyStore interface {
+	queryapi.LogStore
+	Check(context.Context) error
+}
+
+func routes(serviceName string, store readyStore) http.Handler {
 	httpMetrics := metrics.NewHTTPCollector(serviceName)
 	metricsHandler := metrics.NewHandler(serviceName, httpMetrics)
+	readyHandler := readiness.NewHandler(
+		readiness.Func("clickhouse", store.Check),
+	)
 
 	mux := http.NewServeMux()
 	mux.Handle("/metrics", metricsHandler)
@@ -27,10 +37,7 @@ func routes(serviceName string, store queryapi.LogStore) http.Handler {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})))
-	mux.Handle("/readyz", httpMetrics.Middleware("/readyz", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("ready"))
-	})))
+	mux.Handle("/readyz", httpMetrics.Middleware("/readyz", readyHandler))
 	mux.Handle("/v1/status", httpMetrics.Middleware("/v1/status", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
