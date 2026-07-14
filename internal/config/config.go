@@ -8,6 +8,7 @@ import (
 type Config struct {
 	ServiceName    string
 	HTTPAddr       string
+	MetricsAddr    string
 	LogLevel       string
 	NATSURL        string
 	NATSStream     string
@@ -23,6 +24,7 @@ func Load(defaultServiceName, defaultHTTPAddr string) Config {
 	return Config{
 		ServiceName:    envOrDefault("SERVICE_NAME", defaultServiceName),
 		HTTPAddr:       envOrDefault("HTTP_ADDR", defaultHTTPAddr),
+		MetricsAddr:    envOrDefault("METRICS_ADDR", defaultMetricsAddr(defaultServiceName)),
 		LogLevel:       envOrDefault("LOG_LEVEL", "info"),
 		NATSURL:        envOrDefault("NATS_URL", "nats://localhost:4222"),
 		NATSStream:     envOrDefault("NATS_STREAM", "LOGS"),
@@ -32,6 +34,15 @@ func Load(defaultServiceName, defaultHTTPAddr string) Config {
 		NATSMaxDeliver: envOrDefaultInt("NATS_MAX_DELIVER", 5),
 		PostgresDSN:    envOrDefault("POSTGRES_DSN", "postgres://logagg:logagg@localhost:55432/logagg?sslmode=disable"),
 		ClickHouseDSN:  envOrDefault("CLICKHOUSE_DSN", "http://localhost:8123"),
+	}
+}
+
+func defaultMetricsAddr(serviceName string) string {
+	switch serviceName {
+	case "processor":
+		return ":9092"
+	default:
+		return ""
 	}
 }
 
