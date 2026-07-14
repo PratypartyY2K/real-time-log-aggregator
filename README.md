@@ -61,6 +61,7 @@ go run ./cmd/processor
 - `SERVICE_NAME`
 - `HTTP_ADDR`
 - `LOG_LEVEL`
+- `METRICS_ADDR`
 - `NATS_URL`
 - `NATS_DLQ_SUBJECT`
 - `NATS_MAX_DELIVER`
@@ -68,6 +69,8 @@ go run ./cmd/processor
 - `CLICKHOUSE_DSN`
 
 Each service has sane local defaults; see `internal/config/config.go`.
+
+Runtime services expose Prometheus-compatible metrics on `/metrics`. `ingest-api` and `query-api` serve metrics on their main HTTP port. `processor` serves metrics on `METRICS_ADDR`, which defaults to `:9092`.
 
 Before `ingest-api` can authorize requests, insert at least one active API key row in Postgres and a matching service record. The `api_keys.key_hash` column stores a SHA-256 hex digest of the plaintext key.
 

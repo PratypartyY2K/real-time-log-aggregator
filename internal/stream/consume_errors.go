@@ -32,6 +32,10 @@ func isPoisonBatchError(err error) bool {
 	return errors.As(err, &target)
 }
 
+func IsPoisonBatchError(err error) bool {
+	return isPoisonBatchError(err)
+}
+
 func publishDLQ(
 	ctx context.Context,
 	publisher dlqPublisher,

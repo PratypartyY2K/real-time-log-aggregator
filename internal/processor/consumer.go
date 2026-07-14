@@ -3,6 +3,7 @@ package processor
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/PratypartyY2K/real-time-log-aggregator/internal/app"
 	"github.com/PratypartyY2K/real-time-log-aggregator/internal/config"
@@ -10,7 +11,7 @@ import (
 	"github.com/PratypartyY2K/real-time-log-aggregator/internal/stream"
 )
 
-func Run(ctx context.Context, logger app.Logger, cfg config.Config) error {
+func Run(ctx context.Context, logger app.Logger, cfg config.Config, metrics *Metrics) error {
 	nc, consumer, err := stream.ConnectJetStreamConsumer(
 		cfg.NATSURL,
 		cfg.NATSStream,
@@ -29,7 +30,17 @@ func Run(ctx context.Context, logger app.Logger, cfg config.Config) error {
 	logger.Info("processor consumer started", "stream", cfg.NATSStream, "subject", cfg.NATSSubject, "durable", cfg.NATSDurable)
 
 	return consumer.Consume(ctx, func(ctx context.Context, batch contracts.LogsRawEvent) error {
-		return handleBatch(ctx, logger, writer, batch)
+		start := time.Now()
+		err := handleBatch(ctx, logger, writer, batch)
+		result := resultSuccess
+		if err != nil {
+			result = resultRetryable
+		}
+		if err != nil && stream.IsPoisonBatchError(err) {
+			result = resultInvalidBatch
+		}
+		metrics.ObserveBatch(result, len(batch.Logs), time.Since(start))
+		return err
 	}, func(_ context.Context, err error) {
 		logger.Error("processor failed to handle batch", "error", err)
 	})
