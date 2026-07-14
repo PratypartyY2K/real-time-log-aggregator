@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync/atomic"
 
+	"github.com/PratypartyY2K/real-time-log-aggregator/internal/logging"
 	commonmetrics "github.com/PratypartyY2K/real-time-log-aggregator/internal/metrics"
 )
 
@@ -71,7 +72,7 @@ func NewMetricsObserver(logger *slog.Logger) *MetricsObserver {
 	return &MetricsObserver{logger: logger}
 }
 
-func (o *MetricsObserver) ObserveAuth(_ context.Context, obs AuthObservation) {
+func (o *MetricsObserver) ObserveAuth(ctx context.Context, obs AuthObservation) {
 	switch obs.Outcome {
 	case AuthOutcomeAuthorized:
 		o.authorized.Add(1)
@@ -105,9 +106,10 @@ func (o *MetricsObserver) ObserveAuth(_ context.Context, obs AuthObservation) {
 	}
 
 	o.logger.Log(
-		context.Background(),
+		ctx,
 		level,
 		"ingest auth outcome",
+		"request_id", logging.RequestIDFromContext(ctx),
 		"outcome", string(obs.Outcome),
 		"api_key_id", obs.APIKeyID,
 		"service", obs.Service,
