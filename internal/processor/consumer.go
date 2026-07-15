@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/PratypartyY2K/real-time-log-aggregator/internal/alerts"
@@ -50,6 +51,7 @@ func Run(ctx context.Context, logger app.Logger, cfg config.Config, metrics *Met
 
 type AlertRuleStore interface {
 	LoadActiveRules(context.Context, uint64, string, string) ([]alerts.Rule, error)
+	SyncAlertState(context.Context, []alerts.Rule, []alerts.Trigger, time.Time) ([]alerts.StateChange, error)
 }
 
 func handleBatch(ctx context.Context, logger app.Logger, writer LogWriter, ruleStore AlertRuleStore, batch contracts.LogsRawEvent) error {
@@ -75,16 +77,20 @@ func handleBatch(ctx context.Context, logger app.Logger, writer LogWriter, ruleS
 	if err := writer.WriteBatch(ctx, normalized); err != nil {
 		return fmt.Errorf("persist normalized logs: %w", err)
 	}
+	stateChanges, err := syncAlertState(ctx, ruleStore, rules, triggers, alertObservedAt(batch, normalized))
+	if err != nil {
+		return fmt.Errorf("sync alert state: %w", err)
+	}
 
-	for _, trigger := range triggers {
+	for _, change := range stateChanges {
 		logger.Info(
-			"processor alert rule triggered",
-			"rule_id", trigger.RuleID,
-			"rule_name", trigger.RuleName,
-			"rule_type", trigger.RuleType,
-			"severity", trigger.Severity,
-			"group_key", trigger.GroupKey,
-			"match_count", trigger.MatchCount,
+			"processor alert state updated",
+			"rule_id", change.RuleID,
+			"rule_name", change.RuleName,
+			"dedupe_key", change.DedupeKey,
+			"status", change.Status,
+			"event_type", change.EventType,
+			"match_count", change.MatchCount,
 		)
 	}
 
@@ -101,6 +107,7 @@ func handleBatch(ctx context.Context, logger app.Logger, writer LogWriter, ruleS
 		"normalized_log_count", len(normalized),
 		"loaded_alert_rule_count", len(rules),
 		"triggered_alert_count", len(triggers),
+		"alert_state_change_count", len(stateChanges),
 	)
 
 	return nil
@@ -148,4 +155,29 @@ func evaluateAlertRules(rules []alerts.Rule, records []NormalizedLogRecord) ([]a
 	}
 
 	return triggers, nil
+}
+
+func syncAlertState(ctx context.Context, store AlertRuleStore, rules []alerts.Rule, triggers []alerts.Trigger, observedAt time.Time) ([]alerts.StateChange, error) {
+	if store == nil || len(rules) == 0 {
+		return nil, nil
+	}
+	return store.SyncAlertState(ctx, rules, triggers, observedAt)
+}
+
+func alertObservedAt(batch contracts.LogsRawEvent, records []NormalizedLogRecord) time.Time {
+	observedAt, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(batch.ReceivedAt))
+	if err == nil {
+		return observedAt.UTC()
+	}
+
+	var latest time.Time
+	for _, record := range records {
+		if record.Timestamp.After(latest) {
+			latest = record.Timestamp
+		}
+	}
+	if !latest.IsZero() {
+		return latest.UTC()
+	}
+	return time.Now().UTC()
 }

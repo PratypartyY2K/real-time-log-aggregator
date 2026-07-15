@@ -54,6 +54,9 @@ func TestHandleBatchAcceptsPublishedBatch(t *testing.T) {
 	if ruleStore.calls != 1 || ruleStore.tenantID != 42 || ruleStore.service != "checkout" || ruleStore.environment != "prod" {
 		t.Fatalf("expected rules to load for tenant/service/env, got %+v", ruleStore)
 	}
+	if ruleStore.syncCalls != 1 {
+		t.Fatalf("expected state sync, got %d", ruleStore.syncCalls)
+	}
 }
 
 func TestHandleBatchRejectsMissingRequestID(t *testing.T) {
@@ -129,6 +132,9 @@ func TestHandleBatchReturnsAlertRuleLoadError(t *testing.T) {
 	if writer.calls != 0 {
 		t.Fatalf("expected no writer calls when rule loading fails, got %d", writer.calls)
 	}
+	if ruleStore.syncCalls != 0 {
+		t.Fatalf("expected no state sync when rule loading fails, got %d", ruleStore.syncCalls)
+	}
 }
 
 func TestHandleBatchEvaluatesCountThresholdRule(t *testing.T) {
@@ -164,7 +170,45 @@ func TestHandleBatchEvaluatesCountThresholdRule(t *testing.T) {
 		t.Fatalf("expected no error, got %v", err)
 	}
 	if logger.infoCalls != 2 {
-		t.Fatalf("expected trigger log plus batch log, got %d", logger.infoCalls)
+		t.Fatalf("expected state change log plus batch log, got %d", logger.infoCalls)
+	}
+	if ruleStore.syncCalls != 1 || len(ruleStore.syncedTriggers) != 1 {
+		t.Fatalf("expected synced triggers, got %+v", ruleStore)
+	}
+}
+
+func TestHandleBatchReturnsAlertStateSyncError(t *testing.T) {
+	logger := &stubLogger{}
+	writer := &stubLogWriter{}
+	ruleStore := &stubAlertRuleStore{
+		rules: []alerts.Rule{
+			{
+				ID:         9,
+				Name:       "error spike",
+				RuleType:   "count_threshold",
+				Severity:   "critical",
+				FilterJSON: []byte(`{"level":"error"}`),
+				Threshold:  "1",
+			},
+		},
+		syncErr: errors.New("postgres write failed"),
+	}
+	batch := contracts.LogsRawEvent{
+		SchemaVersion: contracts.LogsRawSchemaVersion,
+		RequestID:     "req-123",
+		ReceivedAt:    "2026-07-09T20:12:07Z",
+		TenantID:      42,
+		Service:       "checkout",
+		Env:           "prod",
+		Source:        "app",
+		Logs: []contracts.LogsRawRecord{
+			{Timestamp: "2026-07-07T16:00:00Z", Level: "error", Message: "database timeout"},
+		},
+	}
+
+	err := handleBatch(context.Background(), logger, writer, ruleStore, batch)
+	if err == nil || !strings.Contains(err.Error(), "sync alert state") {
+		t.Fatalf("expected alert state sync error, got %v", err)
 	}
 }
 
@@ -359,12 +403,17 @@ func (w *stubLogWriter) WriteBatch(_ context.Context, batch []NormalizedLogRecor
 }
 
 type stubAlertRuleStore struct {
-	tenantID    uint64
-	service     string
-	environment string
-	rules       []alerts.Rule
-	calls       int
-	err         error
+	tenantID       uint64
+	service        string
+	environment    string
+	rules          []alerts.Rule
+	calls          int
+	err            error
+	syncedRules    []alerts.Rule
+	syncedTriggers []alerts.Trigger
+	syncObservedAt time.Time
+	syncCalls      int
+	syncErr        error
 }
 
 func (s *stubAlertRuleStore) LoadActiveRules(_ context.Context, tenantID uint64, service, environment string) ([]alerts.Rule, error) {
@@ -373,4 +422,27 @@ func (s *stubAlertRuleStore) LoadActiveRules(_ context.Context, tenantID uint64,
 	s.service = service
 	s.environment = environment
 	return s.rules, s.err
+}
+
+func (s *stubAlertRuleStore) SyncAlertState(_ context.Context, rules []alerts.Rule, triggers []alerts.Trigger, observedAt time.Time) ([]alerts.StateChange, error) {
+	s.syncCalls++
+	s.syncedRules = append([]alerts.Rule(nil), rules...)
+	s.syncedTriggers = append([]alerts.Trigger(nil), triggers...)
+	s.syncObservedAt = observedAt
+	if s.syncErr != nil {
+		return nil, s.syncErr
+	}
+
+	changes := make([]alerts.StateChange, 0, len(triggers))
+	for _, trigger := range triggers {
+		changes = append(changes, alerts.StateChange{
+			RuleID:     trigger.RuleID,
+			RuleName:   trigger.RuleName,
+			DedupeKey:  trigger.GroupKey,
+			Status:     alerts.AlertStatusActive,
+			EventType:  alerts.AlertEventTriggered,
+			MatchCount: trigger.MatchCount,
+		})
+	}
+	return changes, nil
 }
