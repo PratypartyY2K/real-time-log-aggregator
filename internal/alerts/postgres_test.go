@@ -15,6 +15,9 @@ func TestScanRuleMapsFields(t *testing.T) {
 			int64(7),
 			int64(42),
 			sql.NullInt64{Int64: 13, Valid: true},
+			sql.NullString{String: "checkout", Valid: true},
+			sql.NullString{String: "prod", Valid: true},
+			sql.NullString{String: "ops@example.com", Valid: true},
 			"error spike",
 			"threshold",
 			"critical",
@@ -31,6 +34,9 @@ func TestScanRuleMapsFields(t *testing.T) {
 	}
 	if rule.ID != 7 || rule.TenantID != 42 || !rule.ServiceID.Valid || rule.ServiceID.Int64 != 13 {
 		t.Fatalf("unexpected ids: %+v", rule)
+	}
+	if !rule.ServiceName.Valid || rule.ServiceName.String != "checkout" || !rule.Environment.Valid || rule.Environment.String != "prod" || !rule.Owner.Valid || rule.Owner.String != "ops@example.com" {
+		t.Fatalf("unexpected service scope: %+v", rule)
 	}
 	if rule.Name != "error spike" || rule.RuleType != "threshold" || rule.Severity != "critical" {
 		t.Fatalf("unexpected rule metadata: %+v", rule)
@@ -77,6 +83,8 @@ func (s stubScanner) Scan(dest ...any) error {
 			*target = s.values[i].(string)
 		case *sql.NullInt64:
 			*target = s.values[i].(sql.NullInt64)
+		case *sql.NullString:
+			*target = s.values[i].(sql.NullString)
 		case *json.RawMessage:
 			*target = append((*target)[:0], s.values[i].([]byte)...)
 		default:

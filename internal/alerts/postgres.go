@@ -11,6 +11,9 @@ type Rule struct {
 	ID              int64
 	TenantID        int64
 	ServiceID       sql.NullInt64
+	ServiceName     sql.NullString
+	Environment     sql.NullString
+	Owner           sql.NullString
 	Name            string
 	RuleType        string
 	Severity        string
@@ -40,6 +43,9 @@ SELECT
     ar.id,
     ar.tenant_id,
     ar.service_id,
+    svc.name,
+    svc.environment,
+    svc.owner,
     ar.name,
     ar.rule_type,
     ar.severity,
@@ -92,6 +98,9 @@ func scanRule(row rowScanner) (Rule, error) {
 		&rule.ID,
 		&rule.TenantID,
 		&rule.ServiceID,
+		&rule.ServiceName,
+		&rule.Environment,
+		&rule.Owner,
 		&rule.Name,
 		&rule.RuleType,
 		&rule.Severity,
