@@ -88,6 +88,9 @@ func (s *PostgresStore) SyncAlertState(ctx context.Context, rules []Rule, trigge
 	if err := applyPlan(ctx, tx, plan, changes); err != nil {
 		return nil, err
 	}
+	if err := s.enqueueNotifications(ctx, tx, rules, changes, observedAt.UTC()); err != nil {
+		return nil, err
+	}
 	if err := tx.Commit(); err != nil {
 		return nil, fmt.Errorf("commit alert state sync: %w", err)
 	}
