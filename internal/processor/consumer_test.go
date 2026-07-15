@@ -7,12 +7,21 @@ import (
 	"testing"
 	"time"
 
+	"github.com/PratypartyY2K/real-time-log-aggregator/internal/alerts"
 	"github.com/PratypartyY2K/real-time-log-aggregator/internal/contracts"
 )
 
 func TestHandleBatchAcceptsPublishedBatch(t *testing.T) {
 	logger := &stubLogger{}
 	writer := &stubLogWriter{}
+	ruleStore := &stubAlertRuleStore{
+		rules: []alerts.Rule{{
+			ID:        7,
+			Name:      "error spike",
+			RuleType:  "count_threshold",
+			Threshold: "10",
+		}},
+	}
 	batch := contracts.LogsRawEvent{
 		SchemaVersion: contracts.LogsRawSchemaVersion,
 		RequestID:     "req-123",
@@ -30,7 +39,7 @@ func TestHandleBatchAcceptsPublishedBatch(t *testing.T) {
 		},
 	}
 
-	if err := handleBatch(context.Background(), logger, writer, batch); err != nil {
+	if err := handleBatch(context.Background(), logger, writer, ruleStore, batch); err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
 	if logger.infoCalls != 1 {
@@ -42,13 +51,16 @@ func TestHandleBatchAcceptsPublishedBatch(t *testing.T) {
 	if len(writer.lastBatch) != 1 || writer.lastBatch[0].TenantID != 42 {
 		t.Fatalf("expected tenant id 42 in written records, got %+v", writer.lastBatch)
 	}
+	if ruleStore.calls != 1 || ruleStore.tenantID != 42 || ruleStore.service != "checkout" || ruleStore.environment != "prod" {
+		t.Fatalf("expected rules to load for tenant/service/env, got %+v", ruleStore)
+	}
 }
 
 func TestHandleBatchRejectsMissingRequestID(t *testing.T) {
 	logger := &stubLogger{}
 	writer := &stubLogWriter{}
 
-	err := handleBatch(context.Background(), logger, writer, contracts.LogsRawEvent{})
+	err := handleBatch(context.Background(), logger, writer, nil, contracts.LogsRawEvent{})
 	if err == nil {
 		t.Fatal("expected error for missing request id")
 	}
@@ -80,12 +92,79 @@ func TestHandleBatchReturnsWriterError(t *testing.T) {
 		},
 	}
 
-	err := handleBatch(context.Background(), logger, writer, batch)
+	err := handleBatch(context.Background(), logger, writer, nil, batch)
 	if err == nil || !strings.Contains(err.Error(), "persist normalized logs") {
 		t.Fatalf("expected persist error, got %v", err)
 	}
 	if logger.infoCalls != 0 {
 		t.Fatalf("expected no info logs when write fails, got %d", logger.infoCalls)
+	}
+}
+
+func TestHandleBatchReturnsAlertRuleLoadError(t *testing.T) {
+	logger := &stubLogger{}
+	writer := &stubLogWriter{}
+	ruleStore := &stubAlertRuleStore{err: errors.New("postgres unavailable")}
+	batch := contracts.LogsRawEvent{
+		SchemaVersion: contracts.LogsRawSchemaVersion,
+		RequestID:     "req-123",
+		ReceivedAt:    "2026-07-09T20:12:07Z",
+		TenantID:      42,
+		Service:       "checkout",
+		Env:           "prod",
+		Source:        "app",
+		Logs: []contracts.LogsRawRecord{
+			{
+				Timestamp: "2026-07-07T16:00:00Z",
+				Level:     "error",
+				Message:   "database timeout",
+			},
+		},
+	}
+
+	err := handleBatch(context.Background(), logger, writer, ruleStore, batch)
+	if err == nil || !strings.Contains(err.Error(), "load alert rules") {
+		t.Fatalf("expected alert rule load error, got %v", err)
+	}
+	if writer.calls != 0 {
+		t.Fatalf("expected no writer calls when rule loading fails, got %d", writer.calls)
+	}
+}
+
+func TestHandleBatchEvaluatesCountThresholdRule(t *testing.T) {
+	logger := &stubLogger{}
+	writer := &stubLogWriter{}
+	ruleStore := &stubAlertRuleStore{
+		rules: []alerts.Rule{
+			{
+				ID:         9,
+				Name:       "error spike",
+				RuleType:   "count_threshold",
+				Severity:   "critical",
+				FilterJSON: []byte(`{"level":"error"}`),
+				Threshold:  "2",
+			},
+		},
+	}
+	batch := contracts.LogsRawEvent{
+		SchemaVersion: contracts.LogsRawSchemaVersion,
+		RequestID:     "req-123",
+		ReceivedAt:    "2026-07-09T20:12:07Z",
+		TenantID:      42,
+		Service:       "checkout",
+		Env:           "prod",
+		Source:        "app",
+		Logs: []contracts.LogsRawRecord{
+			{Timestamp: "2026-07-07T16:00:00Z", Level: "error", Message: "database timeout"},
+			{Timestamp: "2026-07-07T16:00:01Z", Level: "error", Message: "database timeout"},
+		},
+	}
+
+	if err := handleBatch(context.Background(), logger, writer, ruleStore, batch); err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if logger.infoCalls != 2 {
+		t.Fatalf("expected trigger log plus batch log, got %d", logger.infoCalls)
 	}
 }
 
@@ -277,4 +356,21 @@ func (w *stubLogWriter) WriteBatch(_ context.Context, batch []NormalizedLogRecor
 	w.calls++
 	w.lastBatch = append([]NormalizedLogRecord(nil), batch...)
 	return w.err
+}
+
+type stubAlertRuleStore struct {
+	tenantID    uint64
+	service     string
+	environment string
+	rules       []alerts.Rule
+	calls       int
+	err         error
+}
+
+func (s *stubAlertRuleStore) LoadActiveRules(_ context.Context, tenantID uint64, service, environment string) ([]alerts.Rule, error) {
+	s.calls++
+	s.tenantID = tenantID
+	s.service = service
+	s.environment = environment
+	return s.rules, s.err
 }

@@ -2,8 +2,11 @@ package main
 
 import (
 	"context"
+	"database/sql"
+	"log"
 	"net/http"
 
+	"github.com/PratypartyY2K/real-time-log-aggregator/internal/alerts"
 	"github.com/PratypartyY2K/real-time-log-aggregator/internal/app"
 	"github.com/PratypartyY2K/real-time-log-aggregator/internal/config"
 	"github.com/PratypartyY2K/real-time-log-aggregator/internal/metrics"
@@ -11,12 +14,22 @@ import (
 	"github.com/PratypartyY2K/real-time-log-aggregator/internal/readiness"
 	"github.com/PratypartyY2K/real-time-log-aggregator/internal/stream"
 	"github.com/PratypartyY2K/real-time-log-aggregator/internal/worker"
+	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
 func main() {
 	cfg := config.Load("processor", "")
+	db, err := sql.Open("pgx", cfg.PostgresDSN)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer db.Close()
+	if err := db.PingContext(context.Background()); err != nil {
+		log.Fatal(err)
+	}
 	processorMetrics := processor.NewMetrics(cfg.ServiceName)
 	writer := processor.NewClickHouseWriter(cfg.ClickHouseDSN)
+	ruleStore := alerts.NewPostgresStore(db)
 	probeMux := http.NewServeMux()
 	probeMux.Handle("/metrics", metrics.NewHandler(cfg.ServiceName, processorMetrics))
 	probeMux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
@@ -27,10 +40,11 @@ func main() {
 		readiness.Func("nats", func(ctx context.Context) error {
 			return stream.CheckURL(ctx, cfg.NATSURL)
 		}),
+		readiness.PostgresChecker("postgres", db),
 		readiness.Func("clickhouse", writer.Check),
 	))
 	service := worker.New(cfg, func(ctx context.Context, logger app.Logger) error {
-		return processor.Run(ctx, logger, cfg, processorMetrics)
+		return processor.Run(ctx, logger, cfg, processorMetrics, ruleStore)
 	}, worker.WithMetricsHandler(probeMux))
 	app.Run(service)
 }
