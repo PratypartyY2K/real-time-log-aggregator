@@ -39,7 +39,7 @@ func TestHandleBatchAcceptsPublishedBatch(t *testing.T) {
 		},
 	}
 
-	if err := handleBatch(context.Background(), logger, writer, ruleStore, batch); err != nil {
+	if err := handleBatch(context.Background(), logger, writer, ruleStore, &stubNotificationDispatcher{}, batch); err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
 	if logger.infoCalls != 1 {
@@ -57,13 +57,16 @@ func TestHandleBatchAcceptsPublishedBatch(t *testing.T) {
 	if ruleStore.syncCalls != 1 {
 		t.Fatalf("expected state sync, got %d", ruleStore.syncCalls)
 	}
+	if ruleStore.dispatchCalls != 1 {
+		t.Fatalf("expected notification dispatch, got %d", ruleStore.dispatchCalls)
+	}
 }
 
 func TestHandleBatchRejectsMissingRequestID(t *testing.T) {
 	logger := &stubLogger{}
 	writer := &stubLogWriter{}
 
-	err := handleBatch(context.Background(), logger, writer, nil, contracts.LogsRawEvent{})
+	err := handleBatch(context.Background(), logger, writer, nil, &stubNotificationDispatcher{}, contracts.LogsRawEvent{})
 	if err == nil {
 		t.Fatal("expected error for missing request id")
 	}
@@ -95,7 +98,7 @@ func TestHandleBatchReturnsWriterError(t *testing.T) {
 		},
 	}
 
-	err := handleBatch(context.Background(), logger, writer, nil, batch)
+	err := handleBatch(context.Background(), logger, writer, nil, &stubNotificationDispatcher{}, batch)
 	if err == nil || !strings.Contains(err.Error(), "persist normalized logs") {
 		t.Fatalf("expected persist error, got %v", err)
 	}
@@ -125,7 +128,7 @@ func TestHandleBatchReturnsAlertRuleLoadError(t *testing.T) {
 		},
 	}
 
-	err := handleBatch(context.Background(), logger, writer, ruleStore, batch)
+	err := handleBatch(context.Background(), logger, writer, ruleStore, &stubNotificationDispatcher{}, batch)
 	if err == nil || !strings.Contains(err.Error(), "load alert rules") {
 		t.Fatalf("expected alert rule load error, got %v", err)
 	}
@@ -134,6 +137,9 @@ func TestHandleBatchReturnsAlertRuleLoadError(t *testing.T) {
 	}
 	if ruleStore.syncCalls != 0 {
 		t.Fatalf("expected no state sync when rule loading fails, got %d", ruleStore.syncCalls)
+	}
+	if ruleStore.dispatchCalls != 0 {
+		t.Fatalf("expected no dispatch when rule loading fails, got %d", ruleStore.dispatchCalls)
 	}
 }
 
@@ -166,7 +172,7 @@ func TestHandleBatchEvaluatesCountThresholdRule(t *testing.T) {
 		},
 	}
 
-	if err := handleBatch(context.Background(), logger, writer, ruleStore, batch); err != nil {
+	if err := handleBatch(context.Background(), logger, writer, ruleStore, &stubNotificationDispatcher{}, batch); err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
 	if logger.infoCalls != 2 {
@@ -174,6 +180,9 @@ func TestHandleBatchEvaluatesCountThresholdRule(t *testing.T) {
 	}
 	if ruleStore.syncCalls != 1 || len(ruleStore.syncedTriggers) != 1 {
 		t.Fatalf("expected synced triggers, got %+v", ruleStore)
+	}
+	if ruleStore.dispatchCalls != 1 {
+		t.Fatalf("expected dispatch attempt, got %d", ruleStore.dispatchCalls)
 	}
 }
 
@@ -206,9 +215,44 @@ func TestHandleBatchReturnsAlertStateSyncError(t *testing.T) {
 		},
 	}
 
-	err := handleBatch(context.Background(), logger, writer, ruleStore, batch)
+	err := handleBatch(context.Background(), logger, writer, ruleStore, &stubNotificationDispatcher{}, batch)
 	if err == nil || !strings.Contains(err.Error(), "sync alert state") {
 		t.Fatalf("expected alert state sync error, got %v", err)
+	}
+}
+
+func TestHandleBatchReturnsNotificationDispatchError(t *testing.T) {
+	logger := &stubLogger{}
+	writer := &stubLogWriter{}
+	ruleStore := &stubAlertRuleStore{
+		rules: []alerts.Rule{
+			{
+				ID:         9,
+				Name:       "error spike",
+				RuleType:   "count_threshold",
+				Severity:   "critical",
+				FilterJSON: []byte(`{"level":"error"}`),
+				Threshold:  "1",
+			},
+		},
+		dispatchErr: errors.New("delivery failed"),
+	}
+	batch := contracts.LogsRawEvent{
+		SchemaVersion: contracts.LogsRawSchemaVersion,
+		RequestID:     "req-123",
+		ReceivedAt:    "2026-07-09T20:12:07Z",
+		TenantID:      42,
+		Service:       "checkout",
+		Env:           "prod",
+		Source:        "app",
+		Logs: []contracts.LogsRawRecord{
+			{Timestamp: "2026-07-07T16:00:00Z", Level: "error", Message: "database timeout"},
+		},
+	}
+
+	err := handleBatch(context.Background(), logger, writer, ruleStore, &stubNotificationDispatcher{}, batch)
+	if err == nil || !strings.Contains(err.Error(), "dispatch notifications") {
+		t.Fatalf("expected notification dispatch error, got %v", err)
 	}
 }
 
@@ -414,6 +458,8 @@ type stubAlertRuleStore struct {
 	syncObservedAt time.Time
 	syncCalls      int
 	syncErr        error
+	dispatchCalls  int
+	dispatchErr    error
 }
 
 func (s *stubAlertRuleStore) LoadActiveRules(_ context.Context, tenantID uint64, service, environment string) ([]alerts.Rule, error) {
@@ -445,4 +491,15 @@ func (s *stubAlertRuleStore) SyncAlertState(_ context.Context, rules []alerts.Ru
 		})
 	}
 	return changes, nil
+}
+
+func (s *stubAlertRuleStore) DispatchDueNotifications(_ context.Context, _ alerts.NotificationDispatcher, _ time.Time) error {
+	s.dispatchCalls++
+	return s.dispatchErr
+}
+
+type stubNotificationDispatcher struct{}
+
+func (s *stubNotificationDispatcher) Dispatch(context.Context, alerts.NotificationDelivery, alerts.NotificationPayload) error {
+	return nil
 }

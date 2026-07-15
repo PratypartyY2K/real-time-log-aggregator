@@ -29,12 +29,13 @@ func Run(ctx context.Context, logger app.Logger, cfg config.Config, metrics *Met
 	defer nc.Drain()
 
 	writer := NewClickHouseWriter(cfg.ClickHouseDSN)
+	dispatcher := alerts.NewLogDispatcher(logger)
 
 	logger.Info("processor consumer started", "stream", cfg.NATSStream, "subject", cfg.NATSSubject, "durable", cfg.NATSDurable)
 
 	return consumer.Consume(ctx, func(ctx context.Context, batch contracts.LogsRawEvent) error {
 		start := time.Now()
-		err := handleBatch(ctx, logger, writer, ruleStore, batch)
+		err := handleBatch(ctx, logger, writer, ruleStore, dispatcher, batch)
 		result := resultSuccess
 		if err != nil {
 			result = resultRetryable
@@ -52,9 +53,10 @@ func Run(ctx context.Context, logger app.Logger, cfg config.Config, metrics *Met
 type AlertRuleStore interface {
 	LoadActiveRules(context.Context, uint64, string, string) ([]alerts.Rule, error)
 	SyncAlertState(context.Context, []alerts.Rule, []alerts.Trigger, time.Time) ([]alerts.StateChange, error)
+	DispatchDueNotifications(context.Context, alerts.NotificationDispatcher, time.Time) error
 }
 
-func handleBatch(ctx context.Context, logger app.Logger, writer LogWriter, ruleStore AlertRuleStore, batch contracts.LogsRawEvent) error {
+func handleBatch(ctx context.Context, logger app.Logger, writer LogWriter, ruleStore AlertRuleStore, dispatcher alerts.NotificationDispatcher, batch contracts.LogsRawEvent) error {
 	if err := batch.Validate(); err != nil {
 		return stream.MarkPoisonBatch(fmt.Errorf("invalid logs.raw event: %w", err))
 	}
@@ -80,6 +82,9 @@ func handleBatch(ctx context.Context, logger app.Logger, writer LogWriter, ruleS
 	stateChanges, err := syncAlertState(ctx, ruleStore, rules, triggers, alertObservedAt(batch, normalized))
 	if err != nil {
 		return fmt.Errorf("sync alert state: %w", err)
+	}
+	if err := dispatchDueNotifications(ctx, ruleStore, dispatcher, alertObservedAt(batch, normalized)); err != nil {
+		return fmt.Errorf("dispatch notifications: %w", err)
 	}
 
 	for _, change := range stateChanges {
@@ -162,6 +167,13 @@ func syncAlertState(ctx context.Context, store AlertRuleStore, rules []alerts.Ru
 		return nil, nil
 	}
 	return store.SyncAlertState(ctx, rules, triggers, observedAt)
+}
+
+func dispatchDueNotifications(ctx context.Context, store AlertRuleStore, dispatcher alerts.NotificationDispatcher, observedAt time.Time) error {
+	if store == nil || dispatcher == nil {
+		return nil
+	}
+	return store.DispatchDueNotifications(ctx, dispatcher, observedAt)
 }
 
 func alertObservedAt(batch contracts.LogsRawEvent, records []NormalizedLogRecord) time.Time {
