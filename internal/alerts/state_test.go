@@ -1,0 +1,141 @@
+package alerts
+
+import (
+	"database/sql"
+	"testing"
+	"time"
+)
+
+func TestReconcileStateCreatesNewActiveInstance(t *testing.T) {
+	t.Parallel()
+
+	observedAt := time.Date(2026, 7, 15, 12, 0, 0, 0, time.UTC)
+	plan, changes, err := reconcileState(
+		[]Rule{{ID: 7, Name: "error spike", CooldownSeconds: 600}},
+		[]Trigger{{RuleID: 7, RuleName: "error spike", GroupKey: "service=checkout", MatchCount: 3}},
+		nil,
+		observedAt,
+	)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if len(plan.upserts) != 1 || !plan.upserts[0].insert {
+		t.Fatalf("expected insert plan, got %+v", plan)
+	}
+	if len(changes) != 1 || changes[0].EventType != AlertEventTriggered || changes[0].Status != AlertStatusActive {
+		t.Fatalf("unexpected changes: %+v", changes)
+	}
+}
+
+func TestReconcileStateSuppressesWithinCooldown(t *testing.T) {
+	t.Parallel()
+
+	observedAt := time.Date(2026, 7, 15, 12, 5, 0, 0, time.UTC)
+	plan, changes, err := reconcileState(
+		[]Rule{{ID: 7, Name: "error spike", CooldownSeconds: 600}},
+		[]Trigger{{RuleID: 7, RuleName: "error spike", GroupKey: "service=checkout", MatchCount: 3}},
+		[]Instance{{
+			ID:           11,
+			RuleID:       7,
+			DedupeKey:    "service=checkout",
+			Status:       AlertStatusActive,
+			FirstFiredAt: observedAt.Add(-5 * time.Minute),
+			LastFiredAt:  observedAt.Add(-5 * time.Minute),
+		}},
+		observedAt,
+	)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if len(plan.upserts) != 0 {
+		t.Fatalf("expected no instance update during cooldown, got %+v", plan)
+	}
+	if len(changes) != 1 || changes[0].EventType != AlertEventSuppressed {
+		t.Fatalf("unexpected changes: %+v", changes)
+	}
+}
+
+func TestReconcileStateRetriggersAfterCooldown(t *testing.T) {
+	t.Parallel()
+
+	observedAt := time.Date(2026, 7, 15, 12, 20, 0, 0, time.UTC)
+	plan, changes, err := reconcileState(
+		[]Rule{{ID: 7, Name: "error spike", CooldownSeconds: 600}},
+		[]Trigger{{RuleID: 7, RuleName: "error spike", GroupKey: "service=checkout", MatchCount: 3}},
+		[]Instance{{
+			ID:           11,
+			RuleID:       7,
+			DedupeKey:    "service=checkout",
+			Status:       AlertStatusActive,
+			FirstFiredAt: observedAt.Add(-20 * time.Minute),
+			LastFiredAt:  observedAt.Add(-20 * time.Minute),
+		}},
+		observedAt,
+	)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if len(plan.upserts) != 1 || plan.upserts[0].insert {
+		t.Fatalf("expected update plan, got %+v", plan)
+	}
+	if len(changes) != 1 || changes[0].EventType != AlertEventTriggered {
+		t.Fatalf("unexpected changes: %+v", changes)
+	}
+}
+
+func TestReconcileStateResolvesInactiveAlerts(t *testing.T) {
+	t.Parallel()
+
+	observedAt := time.Date(2026, 7, 15, 12, 20, 0, 0, time.UTC)
+	plan, changes, err := reconcileState(
+		[]Rule{{ID: 7, Name: "error spike", CooldownSeconds: 600}},
+		nil,
+		[]Instance{{
+			ID:           11,
+			RuleID:       7,
+			DedupeKey:    "service=checkout",
+			Status:       AlertStatusActive,
+			FirstFiredAt: observedAt.Add(-20 * time.Minute),
+			LastFiredAt:  observedAt.Add(-20 * time.Minute),
+		}},
+		observedAt,
+	)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if len(plan.upserts) != 1 || plan.upserts[0].instance.Status != AlertStatusResolved {
+		t.Fatalf("expected resolved plan, got %+v", plan)
+	}
+	if len(changes) != 1 || changes[0].EventType != AlertEventResolved {
+		t.Fatalf("unexpected changes: %+v", changes)
+	}
+}
+
+func TestReconcileStateReopensResolvedInstance(t *testing.T) {
+	t.Parallel()
+
+	observedAt := time.Date(2026, 7, 15, 12, 20, 0, 0, time.UTC)
+	plan, changes, err := reconcileState(
+		[]Rule{{ID: 7, Name: "error spike", CooldownSeconds: 600}},
+		[]Trigger{{RuleID: 7, RuleName: "error spike", GroupKey: "service=checkout", MatchCount: 3}},
+		[]Instance{{
+			ID:           11,
+			RuleID:       7,
+			DedupeKey:    "service=checkout",
+			Status:       AlertStatusResolved,
+			FirstFiredAt: observedAt.Add(-20 * time.Minute),
+			LastFiredAt:  observedAt.Add(-20 * time.Minute),
+			ResolvedAt:   sql.NullTime{Time: observedAt.Add(-10 * time.Minute), Valid: true},
+		}},
+		observedAt,
+	)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if len(plan.upserts) != 1 || plan.upserts[0].instance.Status != AlertStatusActive {
+		t.Fatalf("expected reopened plan, got %+v", plan)
+	}
+	if len(changes) != 1 || changes[0].EventType != AlertEventTriggered {
+		t.Fatalf("unexpected changes: %+v", changes)
+	}
+}
