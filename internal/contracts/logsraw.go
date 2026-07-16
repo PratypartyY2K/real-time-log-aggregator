@@ -7,6 +7,7 @@ const LogsRawSchemaVersion = "logs.raw.v1"
 type LogsRawEvent struct {
 	SchemaVersion string          `json:"schema_version"`
 	RequestID     string          `json:"request_id"`
+	Fingerprint   string          `json:"fingerprint"`
 	ReceivedAt    string          `json:"received_at"`
 	TenantID      uint64          `json:"tenant_id"`
 	Service       string          `json:"service"`
@@ -28,6 +29,9 @@ func (e LogsRawEvent) Validate() error {
 	}
 	if e.RequestID == "" {
 		return errors.New("request_id is required")
+	}
+	if e.Fingerprint == "" {
+		return errors.New("fingerprint is required")
 	}
 	if e.ReceivedAt == "" {
 		return errors.New("received_at is required")

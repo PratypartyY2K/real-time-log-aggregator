@@ -3,6 +3,8 @@ package config
 import (
 	"os"
 	"strconv"
+	"strings"
+	"time"
 )
 
 type Config struct {
@@ -16,6 +18,10 @@ type Config struct {
 	NATSDLQSubject string
 	NATSDurable    string
 	NATSMaxDeliver int
+	NATSDupeWindow time.Duration
+	NATSReplayMode string
+	NATSReplaySeq  uint64
+	NATSReplayTime string
 	PostgresDSN    string
 	ClickHouseDSN  string
 }
@@ -32,6 +38,10 @@ func Load(defaultServiceName, defaultHTTPAddr string) Config {
 		NATSDLQSubject: envOrDefault("NATS_DLQ_SUBJECT", "logs.raw.dlq"),
 		NATSDurable:    envOrDefault("NATS_DURABLE", defaultServiceName),
 		NATSMaxDeliver: envOrDefaultInt("NATS_MAX_DELIVER", 5),
+		NATSDupeWindow: envOrDefaultDuration("NATS_DEDUPE_WINDOW", 2*time.Minute),
+		NATSReplayMode: strings.ToLower(envOrDefault("NATS_REPLAY_MODE", "live")),
+		NATSReplaySeq:  envOrDefaultUint64("NATS_REPLAY_SEQUENCE", 0),
+		NATSReplayTime: envOrDefault("NATS_REPLAY_TIME", ""),
 		PostgresDSN:    envOrDefault("POSTGRES_DSN", "postgres://logagg:logagg@localhost:55432/logagg?sslmode=disable"),
 		ClickHouseDSN:  envOrDefault("CLICKHOUSE_DSN", "http://localhost:8123"),
 	}
@@ -56,6 +66,24 @@ func envOrDefault(key, fallback string) string {
 func envOrDefaultInt(key string, fallback int) int {
 	if value := os.Getenv(key); value != "" {
 		if parsed, err := strconv.Atoi(value); err == nil && parsed > 0 {
+			return parsed
+		}
+	}
+	return fallback
+}
+
+func envOrDefaultUint64(key string, fallback uint64) uint64 {
+	if value := os.Getenv(key); value != "" {
+		if parsed, err := strconv.ParseUint(value, 10, 64); err == nil {
+			return parsed
+		}
+	}
+	return fallback
+}
+
+func envOrDefaultDuration(key string, fallback time.Duration) time.Duration {
+	if value := os.Getenv(key); value != "" {
+		if parsed, err := time.ParseDuration(value); err == nil && parsed > 0 {
 			return parsed
 		}
 	}

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/PratypartyY2K/real-time-log-aggregator/internal/contracts"
@@ -21,6 +22,18 @@ type JetStreamConsumer struct {
 	sub        *nats.Subscription
 	dlq        *DLQPublisher
 	maxDeliver uint64
+}
+
+type ConsumerOptions struct {
+	URL        string
+	StreamName string
+	Subject    string
+	DLQSubject string
+	Durable    string
+	MaxDeliver int
+	ReplayMode string
+	ReplaySeq  uint64
+	ReplayTime string
 }
 
 const consumerRetryDelay = 5 * time.Second
@@ -116,8 +129,8 @@ func CheckURL(_ context.Context, url string) error {
 	return CheckConnection(context.Background(), nc)
 }
 
-func ConnectJetStreamConsumer(url, streamName, subject, dlqSubject, durable string, maxDeliver int) (*nats.Conn, *JetStreamConsumer, error) {
-	nc, err := nats.Connect(url)
+func ConnectJetStreamConsumer(opts ConsumerOptions) (*nats.Conn, *JetStreamConsumer, error) {
+	nc, err := nats.Connect(opts.URL)
 	if err != nil {
 		return nil, nil, fmt.Errorf("connect to nats: %w", err)
 	}
@@ -128,26 +141,21 @@ func ConnectJetStreamConsumer(url, streamName, subject, dlqSubject, durable stri
 		return nil, nil, fmt.Errorf("create jetstream context: %w", err)
 	}
 
-	if err := validateStream(js, streamName, subject); err != nil {
+	if err := validateStream(js, opts.StreamName, opts.Subject); err != nil {
 		nc.Close()
 		return nil, nil, err
 	}
 
-	if err := validateConsumer(js, streamName, durable, subject, maxDeliver); err != nil {
-		nc.Close()
-		return nil, nil, err
-	}
-
-	sub, err := js.PullSubscribe(subject, durable, nats.Bind(streamName, durable))
+	sub, err := buildConsumerSubscription(js, opts)
 	if err != nil {
 		nc.Close()
-		return nil, nil, fmt.Errorf("create pull subscription: %w", err)
+		return nil, nil, err
 	}
 
 	return nc, &JetStreamConsumer{
 		sub:        sub,
-		dlq:        &DLQPublisher{js: js, subject: dlqSubject},
-		maxDeliver: uint64(maxDeliver),
+		dlq:        &DLQPublisher{js: js, subject: opts.DLQSubject},
+		maxDeliver: uint64(opts.MaxDeliver),
 	}, nil
 }
 
@@ -162,7 +170,11 @@ func (p *JetStreamPublisher) Publish(ctx context.Context, event contracts.LogsRa
 		Data:    payload,
 		Header:  nats.Header{},
 	}
-	msg.Header.Set(nats.MsgIdHdr, event.RequestID)
+	msgID := strings.TrimSpace(event.Fingerprint)
+	if msgID == "" {
+		msgID = event.RequestID
+	}
+	msg.Header.Set(nats.MsgIdHdr, msgID)
 
 	if _, err := p.js.PublishMsg(msg, nats.Context(ctx)); err != nil {
 		return fmt.Errorf("publish logs.raw event: %w", err)
@@ -256,7 +268,7 @@ func reportConsumeError(ctx context.Context, onError consumeErrorHandler, err er
 	}
 }
 
-func SetupJetStream(url, streamName, subject, dlqSubject, durable string, maxDeliver int) error {
+func SetupJetStream(url, streamName, subject, dlqSubject, durable string, maxDeliver int, duplicateWindow time.Duration) error {
 	nc, err := nats.Connect(url)
 	if err != nil {
 		return fmt.Errorf("connect to nats: %w", err)
@@ -269,9 +281,10 @@ func SetupJetStream(url, streamName, subject, dlqSubject, durable string, maxDel
 	}
 
 	if _, err := js.AddStream(&nats.StreamConfig{
-		Name:     streamName,
-		Subjects: []string{subject, dlqSubject},
-		Storage:  nats.FileStorage,
+		Name:       streamName,
+		Subjects:   []string{subject, dlqSubject},
+		Storage:    nats.FileStorage,
+		Duplicates: duplicateWindow,
 	}); err != nil {
 		if validateErr := validateStream(js, streamName, subject, dlqSubject); validateErr != nil {
 			return fmt.Errorf("ensure stream %q: %w", streamName, err)
@@ -295,6 +308,50 @@ func SetupJetStream(url, streamName, subject, dlqSubject, durable string, maxDel
 	}
 
 	return validateConsumer(js, streamName, durable, subject, maxDeliver)
+}
+
+func buildConsumerSubscription(js nats.JetStreamContext, opts ConsumerOptions) (*nats.Subscription, error) {
+	replayMode := opts.ReplayMode
+	if replayMode == "" || replayMode == "live" {
+		if err := validateConsumer(js, opts.StreamName, opts.Durable, opts.Subject, opts.MaxDeliver); err != nil {
+			return nil, err
+		}
+		sub, err := js.PullSubscribe(opts.Subject, opts.Durable, nats.Bind(opts.StreamName, opts.Durable))
+		if err != nil {
+			return nil, fmt.Errorf("create pull subscription: %w", err)
+		}
+		return sub, nil
+	}
+
+	subOpts := []nats.SubOpt{
+		nats.BindStream(opts.StreamName),
+		nats.AckExplicit(),
+		nats.MaxDeliver(opts.MaxDeliver),
+	}
+
+	switch replayMode {
+	case "all":
+		subOpts = append(subOpts, nats.DeliverAll())
+	case "sequence":
+		if opts.ReplaySeq == 0 {
+			return nil, fmt.Errorf("replay mode sequence requires NATS_REPLAY_SEQUENCE > 0")
+		}
+		subOpts = append(subOpts, nats.StartSequence(opts.ReplaySeq))
+	case "time":
+		replayTime, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(opts.ReplayTime))
+		if err != nil {
+			return nil, fmt.Errorf("parse NATS_REPLAY_TIME: %w", err)
+		}
+		subOpts = append(subOpts, nats.StartTime(replayTime.UTC()))
+	default:
+		return nil, fmt.Errorf("unsupported replay mode %q", replayMode)
+	}
+
+	sub, err := js.PullSubscribe(opts.Subject, "", subOpts...)
+	if err != nil {
+		return nil, fmt.Errorf("create replay pull subscription: %w", err)
+	}
+	return sub, nil
 }
 
 func validateStream(js nats.JetStreamContext, streamName string, subjects ...string) error {

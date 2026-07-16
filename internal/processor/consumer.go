@@ -15,14 +15,17 @@ import (
 )
 
 func Run(ctx context.Context, logger app.Logger, cfg config.Config, metrics *Metrics, ruleStore AlertRuleStore) error {
-	nc, consumer, err := stream.ConnectJetStreamConsumer(
-		cfg.NATSURL,
-		cfg.NATSStream,
-		cfg.NATSSubject,
-		cfg.NATSDLQSubject,
-		cfg.NATSDurable,
-		cfg.NATSMaxDeliver,
-	)
+	nc, consumer, err := stream.ConnectJetStreamConsumer(stream.ConsumerOptions{
+		URL:        cfg.NATSURL,
+		StreamName: cfg.NATSStream,
+		Subject:    cfg.NATSSubject,
+		DLQSubject: cfg.NATSDLQSubject,
+		Durable:    cfg.NATSDurable,
+		MaxDeliver: cfg.NATSMaxDeliver,
+		ReplayMode: cfg.NATSReplayMode,
+		ReplaySeq:  cfg.NATSReplaySeq,
+		ReplayTime: cfg.NATSReplayTime,
+	})
 	if err != nil {
 		return err
 	}
@@ -31,7 +34,7 @@ func Run(ctx context.Context, logger app.Logger, cfg config.Config, metrics *Met
 	writer := NewClickHouseWriter(cfg.ClickHouseDSN)
 	dispatcher := alerts.NewLogDispatcher(logger)
 
-	logger.Info("processor consumer started", "stream", cfg.NATSStream, "subject", cfg.NATSSubject, "durable", cfg.NATSDurable)
+	logger.Info("processor consumer started", "stream", cfg.NATSStream, "subject", cfg.NATSSubject, "durable", cfg.NATSDurable, "replay_mode", cfg.NATSReplayMode)
 
 	return consumer.Consume(ctx, func(ctx context.Context, batch contracts.LogsRawEvent) error {
 		start := time.Now()
@@ -67,6 +70,19 @@ func handleBatch(ctx context.Context, logger app.Logger, writer LogWriter, ruleS
 	}
 	if writer == nil {
 		return fmt.Errorf("processor writer is not configured")
+	}
+	alreadyProcessed, err := writer.AlreadyProcessed(ctx, batch.RequestID)
+	if err != nil {
+		return fmt.Errorf("check existing ingest id: %w", err)
+	}
+	if alreadyProcessed {
+		logger.Info(
+			"processor skipped replayed batch",
+			"request_id", batch.RequestID,
+			"fingerprint", batch.Fingerprint,
+			"tenant_id", batch.TenantID,
+		)
+		return nil
 	}
 	rules, err := loadAlertRules(ctx, ruleStore, batch)
 	if err != nil {

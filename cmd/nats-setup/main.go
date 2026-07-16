@@ -16,6 +16,7 @@ func main() {
 		cfg.NATSDLQSubject,
 		cfg.NATSDurable,
 		cfg.NATSMaxDeliver,
+		cfg.NATSDupeWindow,
 	); err != nil {
 		log.Fatal(err)
 	}

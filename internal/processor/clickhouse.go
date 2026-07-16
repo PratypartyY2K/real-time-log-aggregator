@@ -14,6 +14,7 @@ import (
 )
 
 type LogWriter interface {
+	AlreadyProcessed(context.Context, string) (bool, error)
 	WriteBatch(context.Context, []NormalizedLogRecord) error
 }
 
@@ -52,6 +53,42 @@ func (w *ClickHouseWriter) Check(ctx context.Context) error {
 		return fmt.Errorf("clickhouse writer is not configured")
 	}
 	return commonclickhouse.Probe(ctx, w.url, w.client)
+}
+
+func (w *ClickHouseWriter) AlreadyProcessed(ctx context.Context, ingestID string) (bool, error) {
+	if strings.TrimSpace(ingestID) == "" {
+		return false, fmt.Errorf("ingest id is required")
+	}
+	if w == nil || w.url == "" {
+		return false, fmt.Errorf("clickhouse writer is not configured")
+	}
+
+	query := "SELECT 1 FROM logs WHERE ingest_id = '" + strings.ReplaceAll(ingestID, "'", "''") + "' LIMIT 1 FORMAT JSONEachRow\n"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, w.url, strings.NewReader(query))
+	if err != nil {
+		return false, fmt.Errorf("build clickhouse exists request: %w", err)
+	}
+	req.Header.Set("Content-Type", "text/plain; charset=utf-8")
+
+	resp, err := w.client.Do(req)
+	if err != nil {
+		return false, fmt.Errorf("check clickhouse ingest id: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= http.StatusBadRequest {
+		payload, readErr := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		if readErr != nil {
+			return false, fmt.Errorf("clickhouse ingest id check failed with status %s", resp.Status)
+		}
+		return false, fmt.Errorf("clickhouse ingest id check failed with status %s: %s", resp.Status, strings.TrimSpace(string(payload)))
+	}
+
+	payload, err := io.ReadAll(io.LimitReader(resp.Body, 16))
+	if err != nil {
+		return false, fmt.Errorf("read clickhouse ingest id check response: %w", err)
+	}
+	return len(bytes.TrimSpace(payload)) > 0, nil
 }
 
 func (w *ClickHouseWriter) WriteBatch(ctx context.Context, records []NormalizedLogRecord) error {

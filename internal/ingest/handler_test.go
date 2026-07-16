@@ -65,6 +65,12 @@ func TestHandlerAcceptsValidBatch(t *testing.T) {
 	if publisher.batch.RequestID == "" {
 		t.Fatal("expected request id to be set")
 	}
+	if publisher.batch.Fingerprint == "" {
+		t.Fatal("expected fingerprint to be set")
+	}
+	if publisher.batch.RequestID != publisher.batch.Fingerprint {
+		t.Fatalf("expected request id and fingerprint to match, got %q and %q", publisher.batch.RequestID, publisher.batch.Fingerprint)
+	}
 	if publisher.batch.SchemaVersion != contracts.LogsRawSchemaVersion {
 		t.Fatalf("expected schema version %q, got %q", contracts.LogsRawSchemaVersion, publisher.batch.SchemaVersion)
 	}
@@ -73,6 +79,47 @@ func TestHandlerAcceptsValidBatch(t *testing.T) {
 	}
 	if len(observer.observations) != 1 || observer.observations[0].Outcome != AuthOutcomeAuthorized {
 		t.Fatalf("expected authorized observation, got %#v", observer.observations)
+	}
+}
+
+func TestBatchFingerprintIsDeterministic(t *testing.T) {
+	first := BatchRequest{
+		Service: " Checkout ",
+		Env:     " PROD ",
+		Source:  " app ",
+		Logs: []LogRecord{
+			{
+				Timestamp: "2026-07-07T16:00:00Z",
+				Level:     " ERROR ",
+				Message:   " database timeout ",
+				Fields: map[string]any{
+					"b": "two",
+					"a": "one",
+				},
+			},
+		},
+	}
+	second := BatchRequest{
+		Service: "checkout",
+		Env:     "prod",
+		Source:  "app",
+		Logs: []LogRecord{
+			{
+				Timestamp: "2026-07-07T16:00:00Z",
+				Level:     "error",
+				Message:   "database timeout",
+				Fields: map[string]any{
+					"a": "one",
+					"b": "two",
+				},
+			},
+		},
+	}
+
+	firstFingerprint := batchFingerprint(7, first)
+	secondFingerprint := batchFingerprint(7, second)
+	if firstFingerprint != secondFingerprint {
+		t.Fatalf("expected deterministic fingerprint, got %q and %q", firstFingerprint, secondFingerprint)
 	}
 }
 

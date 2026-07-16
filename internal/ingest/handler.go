@@ -2,7 +2,7 @@ package ingest
 
 import (
 	"context"
-	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -205,7 +205,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	requestID := randomID()
+	requestID := batchFingerprint(authz.TenantID, req)
 	event := toLogsRawEvent(requestID, time.Now().UTC().Format(time.RFC3339Nano), authz.TenantID, req)
 	if err := h.publisher.Publish(r.Context(), event); err != nil {
 		writeError(w, http.StatusServiceUnavailable, "failed to queue logs")
@@ -239,6 +239,7 @@ func toLogsRawEvent(requestID, receivedAt string, tenantID int64, req BatchReque
 	return contracts.LogsRawEvent{
 		SchemaVersion: contracts.LogsRawSchemaVersion,
 		RequestID:     requestID,
+		Fingerprint:   requestID,
 		ReceivedAt:    receivedAt,
 		TenantID:      uint64(tenantID),
 		Service:       req.Service,
@@ -301,12 +302,53 @@ func writeJSON(w http.ResponseWriter, status int, payload any) {
 	_ = json.NewEncoder(w).Encode(payload)
 }
 
-func randomID() string {
-	var buf [8]byte
-	if _, err := rand.Read(buf[:]); err != nil {
-		return "bootstrap-request"
+type fingerprintBatch struct {
+	TenantID uint64               `json:"tenant_id"`
+	Service  string               `json:"service"`
+	Env      string               `json:"env"`
+	Source   string               `json:"source"`
+	Logs     []fingerprintLogItem `json:"logs"`
+}
+
+type fingerprintLogItem struct {
+	Timestamp string         `json:"timestamp"`
+	Level     string         `json:"level"`
+	Message   string         `json:"message"`
+	Fields    map[string]any `json:"fields,omitempty"`
+}
+
+func batchFingerprint(tenantID int64, req BatchRequest) string {
+	payload := fingerprintBatch{
+		TenantID: uint64(tenantID),
+		Service:  strings.ToLower(strings.TrimSpace(req.Service)),
+		Env:      strings.ToLower(strings.TrimSpace(req.Env)),
+		Source:   strings.ToLower(strings.TrimSpace(req.Source)),
+		Logs:     make([]fingerprintLogItem, 0, len(req.Logs)),
 	}
-	return hex.EncodeToString(buf[:])
+
+	for _, record := range req.Logs {
+		payload.Logs = append(payload.Logs, fingerprintLogItem{
+			Timestamp: strings.TrimSpace(record.Timestamp),
+			Level:     strings.ToLower(strings.TrimSpace(record.Level)),
+			Message:   strings.TrimSpace(record.Message),
+			Fields:    record.Fields,
+		})
+	}
+
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		sum := sha256.Sum256([]byte(strings.Join([]string{
+			strconv(int(tenantID)),
+			req.Service,
+			req.Env,
+			req.Source,
+			itoa(len(req.Logs)),
+		}, "\n")))
+		return hex.EncodeToString(sum[:16])
+	}
+
+	sum := sha256.Sum256(encoded)
+	return hex.EncodeToString(sum[:16])
 }
 
 func itoa(v int) string {

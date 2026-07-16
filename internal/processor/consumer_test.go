@@ -25,6 +25,7 @@ func TestHandleBatchAcceptsPublishedBatch(t *testing.T) {
 	batch := contracts.LogsRawEvent{
 		SchemaVersion: contracts.LogsRawSchemaVersion,
 		RequestID:     "req-123",
+		Fingerprint:   "req-123",
 		ReceivedAt:    "2026-07-09T20:12:07Z",
 		TenantID:      42,
 		Service:       "checkout",
@@ -84,6 +85,7 @@ func TestHandleBatchReturnsWriterError(t *testing.T) {
 	batch := contracts.LogsRawEvent{
 		SchemaVersion: contracts.LogsRawSchemaVersion,
 		RequestID:     "req-123",
+		Fingerprint:   "req-123",
 		ReceivedAt:    "2026-07-09T20:12:07Z",
 		TenantID:      42,
 		Service:       "checkout",
@@ -114,6 +116,7 @@ func TestHandleBatchReturnsAlertRuleLoadError(t *testing.T) {
 	batch := contracts.LogsRawEvent{
 		SchemaVersion: contracts.LogsRawSchemaVersion,
 		RequestID:     "req-123",
+		Fingerprint:   "req-123",
 		ReceivedAt:    "2026-07-09T20:12:07Z",
 		TenantID:      42,
 		Service:       "checkout",
@@ -161,6 +164,7 @@ func TestHandleBatchEvaluatesCountThresholdRule(t *testing.T) {
 	batch := contracts.LogsRawEvent{
 		SchemaVersion: contracts.LogsRawSchemaVersion,
 		RequestID:     "req-123",
+		Fingerprint:   "req-123",
 		ReceivedAt:    "2026-07-09T20:12:07Z",
 		TenantID:      42,
 		Service:       "checkout",
@@ -205,6 +209,7 @@ func TestHandleBatchReturnsAlertStateSyncError(t *testing.T) {
 	batch := contracts.LogsRawEvent{
 		SchemaVersion: contracts.LogsRawSchemaVersion,
 		RequestID:     "req-123",
+		Fingerprint:   "req-123",
 		ReceivedAt:    "2026-07-09T20:12:07Z",
 		TenantID:      42,
 		Service:       "checkout",
@@ -240,6 +245,7 @@ func TestHandleBatchReturnsNotificationDispatchError(t *testing.T) {
 	batch := contracts.LogsRawEvent{
 		SchemaVersion: contracts.LogsRawSchemaVersion,
 		RequestID:     "req-123",
+		Fingerprint:   "req-123",
 		ReceivedAt:    "2026-07-09T20:12:07Z",
 		TenantID:      42,
 		Service:       "checkout",
@@ -260,6 +266,7 @@ func TestNormalizeBatchNormalizesRecords(t *testing.T) {
 	batch := contracts.LogsRawEvent{
 		SchemaVersion: contracts.LogsRawSchemaVersion,
 		RequestID:     "req-123",
+		Fingerprint:   "req-123",
 		ReceivedAt:    "2026-07-09T20:12:07.612769-07:00",
 		TenantID:      42,
 		Service:       " Checkout ",
@@ -335,6 +342,7 @@ func TestNormalizeBatchFallsBackToReceivedAtForMissingTimestamp(t *testing.T) {
 	batch := contracts.LogsRawEvent{
 		SchemaVersion: contracts.LogsRawSchemaVersion,
 		RequestID:     "req-123",
+		Fingerprint:   "req-123",
 		ReceivedAt:    "2026-07-09T20:12:07.612769Z",
 		TenantID:      42,
 		Service:       "checkout",
@@ -361,6 +369,7 @@ func TestNormalizeBatchRejectsInvalidRecordTimestamp(t *testing.T) {
 	batch := contracts.LogsRawEvent{
 		SchemaVersion: contracts.LogsRawSchemaVersion,
 		RequestID:     "req-123",
+		Fingerprint:   "req-123",
 		ReceivedAt:    "2026-07-09T20:12:07Z",
 		TenantID:      42,
 		Service:       "checkout",
@@ -388,6 +397,7 @@ func TestNormalizeBatchProducesStableFingerprint(t *testing.T) {
 	batch := contracts.LogsRawEvent{
 		SchemaVersion: contracts.LogsRawSchemaVersion,
 		RequestID:     "req-123",
+		Fingerprint:   "req-123",
 		ReceivedAt:    "2026-07-09T20:12:07Z",
 		TenantID:      42,
 		Service:       "checkout",
@@ -424,6 +434,34 @@ func TestNormalizeBatchProducesStableFingerprint(t *testing.T) {
 	}
 }
 
+func TestHandleBatchSkipsAlreadyProcessedBatch(t *testing.T) {
+	logger := &stubLogger{}
+	writer := &stubLogWriter{alreadyProcessed: true}
+	batch := contracts.LogsRawEvent{
+		SchemaVersion: contracts.LogsRawSchemaVersion,
+		RequestID:     "req-123",
+		Fingerprint:   "req-123",
+		ReceivedAt:    "2026-07-09T20:12:07Z",
+		TenantID:      42,
+		Service:       "checkout",
+		Env:           "prod",
+		Source:        "app",
+		Logs: []contracts.LogsRawRecord{
+			{Timestamp: "2026-07-07T16:00:00Z", Level: "error", Message: "database timeout"},
+		},
+	}
+
+	if err := handleBatch(context.Background(), logger, writer, nil, &stubNotificationDispatcher{}, batch); err != nil {
+		t.Fatalf("expected replayed batch to be skipped cleanly, got %v", err)
+	}
+	if writer.alreadyProcessedChecks != 1 {
+		t.Fatalf("expected one already-processed check, got %d", writer.alreadyProcessedChecks)
+	}
+	if writer.calls != 0 {
+		t.Fatalf("expected no writes for replayed batch, got %d", writer.calls)
+	}
+}
+
 type stubLogger struct {
 	infoCalls int
 }
@@ -435,9 +473,17 @@ func (l *stubLogger) Info(_ string, _ ...any) {
 func (l *stubLogger) Error(_ string, _ ...any) {}
 
 type stubLogWriter struct {
-	lastBatch []NormalizedLogRecord
-	calls     int
-	err       error
+	lastBatch              []NormalizedLogRecord
+	calls                  int
+	err                    error
+	alreadyProcessed       bool
+	alreadyProcessedErr    error
+	alreadyProcessedChecks int
+}
+
+func (w *stubLogWriter) AlreadyProcessed(_ context.Context, _ string) (bool, error) {
+	w.alreadyProcessedChecks++
+	return w.alreadyProcessed, w.alreadyProcessedErr
 }
 
 func (w *stubLogWriter) WriteBatch(_ context.Context, batch []NormalizedLogRecord) error {
