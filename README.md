@@ -11,9 +11,9 @@ A portfolio project focused on reliability engineering and distributed systems f
 ## Architecture
 
 - `ingest-api`: receives logs over HTTP and publishes batches to the stream
-- `processor`: consumes streamed logs, normalizes them, and writes processed records to ClickHouse
-- `query-api`: serves health endpoints and ClickHouse-backed log reads, and will expand into alerts and metadata
-- `NATS JetStream`: durable buffering, replay, and backpressure boundary
+- `processor`: consumes streamed logs, normalizes them, writes processed records to ClickHouse, evaluates alert rules, and dispatches notifications
+- `query-api`: serves health/status endpoints and ClickHouse-backed log reads
+- `NATS JetStream`: durable buffering, replay, dedupe window, and backpressure boundary
 - `ClickHouse`: analytical store for logs
 - `Postgres`: control-plane metadata and alert state
 
@@ -63,8 +63,15 @@ go run ./cmd/processor
 - `LOG_LEVEL`
 - `METRICS_ADDR`
 - `NATS_URL`
+- `NATS_STREAM`
+- `NATS_SUBJECT`
+- `NATS_DURABLE`
 - `NATS_DLQ_SUBJECT`
 - `NATS_MAX_DELIVER`
+- `NATS_DEDUPE_WINDOW`
+- `NATS_REPLAY_MODE`
+- `NATS_REPLAY_SEQUENCE`
+- `NATS_REPLAY_TIME`
 - `POSTGRES_DSN`
 - `CLICKHOUSE_DSN`
 
@@ -98,9 +105,21 @@ Leave `api_keys.service_id` as `NULL` for a tenant-wide key, or set it to a `ser
 
 The `logs.raw` stream contract is defined explicitly in [docs/jetstream.md](/docs/jetstream.md). Runtime services validate and bind to pre-provisioned JetStream state; they do not create the stream implicitly.
 
-## MVP next steps
+Current delivery model:
 
-1. Add tenant/service-aware authorization checks in `ingest-api`.
-2. Add alert evaluation in `processor`.
-3. Extend Postgres schema and workflows for alert rules and control-plane state.
-4. Add Prometheus metrics and OpenTelemetry once the base flow is in place.
+- ingestion into JetStream is idempotent within the configured duplicate window
+- processing semantics are `at-least-once`
+- processor replay can start from the full stream, a JetStream sequence, or an RFC3339 timestamp via `NATS_REPLAY_MODE`
+
+## Documentation
+
+- system architecture: [docs/architecture.md](/Users/pratyushkumar/Documents/Real-time%20Log%20Aggregator/docs/architecture.md)
+- HTTP API surface: [docs/api.md](/Users/pratyushkumar/Documents/Real-time%20Log%20Aggregator/docs/api.md)
+- JetStream topology and replay: [docs/jetstream.md](/Users/pratyushkumar/Documents/Real-time%20Log%20Aggregator/docs/jetstream.md)
+
+## Current gaps
+
+1. Add read-side authn/authz to `query-api`.
+2. Replace the process-local rate limiter with a distributed implementation if multiple `ingest-api` replicas are introduced.
+3. Add external notification sinks beyond the current log dispatcher.
+4. Add richer query filters and tenant-scoped saved-query workflows.

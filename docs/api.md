@@ -1,4 +1,6 @@
-# API Bootstrap
+# API Reference
+
+This document describes the HTTP surfaces implemented today. Transport details for the JetStream contract live in [docs/jetstream.md](/Users/pratyushkumar/Documents/Real-time%20Log%20Aggregator/docs/jetstream.md). System-level behavior and tradeoffs live in [docs/architecture.md](/Users/pratyushkumar/Documents/Real-time%20Log%20Aggregator/docs/architecture.md).
 
 ## `POST /v1/logs`
 
@@ -13,6 +15,8 @@ Current behavior:
 - enforces a default maximum of 1000 log records per batch
 - validates RFC3339 timestamps
 - publishes a versioned `logs.raw.v1` event to JetStream
+- computes a deterministic batch fingerprint and uses it as the request identifier
+- returns the same deterministic identifier in both `request_id` and `fingerprint` on the wire contract
 - returns `202 Accepted` when the batch is structurally valid and successfully published
 
 Example request:
@@ -42,6 +46,16 @@ Wire contract:
 - schema: `logs.raw.v1`
 - topology/bootstrap: see [docs/jetstream.md](/Users/pratyushkumar/Documents/Real-time%20Log%20Aggregator/docs/jetstream.md)
 
+Response shape:
+
+```json
+{
+  "request_id": "3fbc3e706209ca620d4d0fdd2627fb76",
+  "accepted": 1,
+  "status": "queued"
+}
+```
+
 For local testing, hash a plaintext key with SHA-256 and insert it into Postgres:
 
 ```bash
@@ -56,12 +70,26 @@ Current behavior:
 
 - returns JSON counters for ingest auth outcomes
 - includes `authorized`, `missing_api_key`, `invalid_api_key`, `forbidden_scope`, `backend_error`, `authenticator_unavailable`, `rate_limited`, `request_body_too_large`, `invalid_request_body`, and `batch_too_large`
+- is specific to `ingest-api`
 
 ## `GET /metrics`
 
 Current behavior:
 
-- exposes Prometheus-compatible metrics for HTTP traffic and ingest auth outcomes
+- exposes Prometheus-compatible metrics for the current service
+
+## `GET /healthz`
+
+Current behavior:
+
+- returns `200 OK` with `ok` when the process is alive
+
+## `GET /readyz`
+
+Current behavior:
+
+- `ingest-api` checks Postgres and NATS
+- `query-api` checks ClickHouse
 
 ## `GET /v1/logs`
 
@@ -72,9 +100,52 @@ Current behavior:
 - supports optional exact-match `service` and `level` filters
 - supports optional `limit`, default `100`, max `1000`
 - returns logs ordered by newest `timestamp` first
+- returns normalized records including `tenant_id`, `environment`, `source`, `host`, `trace_id`, `fingerprint`, `ingest_id`, and `raw_size_bytes`
 
 Example request:
 
 ```text
 /v1/logs?start=2026-07-13T17:00:00Z&end=2026-07-13T19:00:00Z&service=checkout&level=error&limit=100
 ```
+
+Example response:
+
+```json
+{
+  "logs": [
+    {
+      "timestamp": "2026-07-13T18:00:00Z",
+      "tenant_id": 1,
+      "service": "checkout",
+      "environment": "prod",
+      "source": "app",
+      "host": "api-1",
+      "level": "error",
+      "trace_id": "trace-123",
+      "fingerprint": "abc123",
+      "message": "database timeout",
+      "fields": {
+        "region": "us-west-2"
+      },
+      "ingest_id": "req-123",
+      "raw_size_bytes": 128
+    }
+  ],
+  "count": 1
+}
+```
+
+Validation rules:
+
+- `start` is required
+- `end` is required
+- `start` must be before `end`
+- `service` and `level` accept only safe tag characters
+- `limit` must be a positive integer and is capped at `1000`
+
+## `GET /v1/status`
+
+Current behavior:
+
+- returns a bootstrap JSON payload from `query-api`
+- includes `service`, `time`, and `status`
