@@ -15,10 +15,11 @@ import (
 )
 
 type requestPayload struct {
-	Service string           `json:"service"`
-	Env     string           `json:"env"`
-	Source  string           `json:"source"`
-	Logs    []requestLogItem `json:"logs"`
+	SchemaVersion string           `json:"schema_version"`
+	Service       string           `json:"service"`
+	Env           string           `json:"env"`
+	Source        string           `json:"source"`
+	Logs          []requestLogItem `json:"logs"`
 }
 
 type requestLogItem struct {
@@ -59,10 +60,11 @@ func main() {
 
 	for burst := 0; burst < *bursts; burst++ {
 		burstResults, err := runBurst(client, *targetURL, *apiKey, requestPayload{
-			Service: *service,
-			Env:     *environment,
-			Source:  *source,
-			Logs:    buildLogs(*logsPerReq, burst),
+			SchemaVersion: "logs.ingest.v1",
+			Service:       *service,
+			Env:           *environment,
+			Source:        *source,
+			Logs:          buildLogs(*logsPerReq, burst),
 		}, *burstSize, *concurrency)
 		if err != nil {
 			log.Fatal(err)
