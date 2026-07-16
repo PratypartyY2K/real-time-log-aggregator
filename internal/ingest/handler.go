@@ -21,6 +21,7 @@ type Config struct {
 	Authenticator Authenticator
 	Observer      Observer
 	RateLimiter   RateLimiter
+	Backpressure  BackpressureController
 	Publisher     Publisher
 }
 
@@ -30,6 +31,7 @@ type Handler struct {
 	authenticator Authenticator
 	observer      Observer
 	rateLimiter   RateLimiter
+	backpressure  BackpressureController
 	publisher     Publisher
 }
 
@@ -96,6 +98,7 @@ func NewHandler(cfg Config) *Handler {
 		authenticator: cfg.Authenticator,
 		observer:      cfg.Observer,
 		rateLimiter:   cfg.RateLimiter,
+		backpressure:  cfg.Backpressure,
 		publisher:     cfg.Publisher,
 	}
 }
@@ -203,6 +206,16 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if h.publisher == nil {
 		writeError(w, http.StatusServiceUnavailable, "ingest publisher unavailable")
 		return
+	}
+	if h.backpressure != nil {
+		if err := h.backpressure.Apply(r.Context()); err != nil {
+			if errors.Is(err, ErrBackpressureRejected) {
+				writeError(w, http.StatusTooManyRequests, "ingest queue is backpressured")
+				return
+			}
+			writeError(w, http.StatusServiceUnavailable, "backpressure check failed")
+			return
+		}
 	}
 
 	requestID := batchFingerprint(authz.TenantID, req)

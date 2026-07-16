@@ -34,18 +34,19 @@ func main() {
 	}
 	defer nc.Drain()
 
+	queueMonitor := stream.NewQueueMonitor(cfg.NATSURL, cfg.NATSStream, cfg.NATSDurable)
 	observer := ingest.NewMetricsObserver(logging.New(cfg.LogLevel))
-	service := app.NewHTTPService(cfg, routes(cfg.NATSURL, db, auth.NewPostgresAuthenticator(db), publisher, observer))
+	service := app.NewHTTPService(cfg, routes(cfg, db, auth.NewPostgresAuthenticator(db), publisher, observer, queueMonitor))
 	app.Run(service)
 }
 
-func routes(natsURL string, db *sql.DB, authenticator ingest.Authenticator, publisher ingest.Publisher, observer *ingest.MetricsObserver) http.Handler {
+func routes(cfg config.Config, db *sql.DB, authenticator ingest.Authenticator, publisher ingest.Publisher, observer *ingest.MetricsObserver, queueMonitor stream.QueueStatsProvider) http.Handler {
 	httpMetrics := metrics.NewHTTPCollector("ingest-api")
-	metricsHandler := metrics.NewHandler("ingest-api", httpMetrics, observer)
+	metricsHandler := metrics.NewHandler("ingest-api", httpMetrics, observer, stream.NewQueueLagCollector("ingest-api", queueMonitor))
 	readyHandler := readiness.NewHandler(
 		readiness.PostgresChecker("postgres", db),
 		readiness.Func("nats", func(ctx context.Context) error {
-			return stream.CheckURL(ctx, natsURL)
+			return stream.CheckURL(ctx, cfg.NATSURL)
 		}),
 	)
 
@@ -55,7 +56,13 @@ func routes(natsURL string, db *sql.DB, authenticator ingest.Authenticator, publ
 		Authenticator: authenticator,
 		Observer:      observer,
 		RateLimiter:   ingest.NewMemoryRateLimiter(),
-		Publisher:     publisher,
+		Backpressure: ingest.QueueLagBackpressure{
+			Strategy:      cfg.NATSBackpressureStrategy,
+			HighWatermark: cfg.NATSQueueLagHighWatermark,
+			Delay:         cfg.NATSBackpressureDelay,
+			Monitor:       queueMonitor,
+		},
+		Publisher: publisher,
 	})
 
 	mux := http.NewServeMux()

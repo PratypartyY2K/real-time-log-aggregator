@@ -30,8 +30,9 @@ func main() {
 	processorMetrics := processor.NewMetrics(cfg.ServiceName)
 	writer := processor.NewClickHouseWriter(cfg.ClickHouseDSN)
 	ruleStore := alerts.NewPostgresStore(db)
+	queueMonitor := stream.NewQueueMonitor(cfg.NATSURL, cfg.NATSStream, cfg.NATSDurable)
 	probeMux := http.NewServeMux()
-	probeMux.Handle("/metrics", metrics.NewHandler(cfg.ServiceName, processorMetrics))
+	probeMux.Handle("/metrics", metrics.NewHandler(cfg.ServiceName, processorMetrics, stream.NewQueueLagCollector(cfg.ServiceName, queueMonitor)))
 	probeMux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))

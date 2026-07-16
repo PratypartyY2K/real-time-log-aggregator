@@ -8,42 +8,48 @@ import (
 )
 
 type Config struct {
-	ServiceName    string
-	HTTPAddr       string
-	MetricsAddr    string
-	LogLevel       string
-	NATSURL        string
-	NATSStream     string
-	NATSSubject    string
-	NATSDLQSubject string
-	NATSDurable    string
-	NATSMaxDeliver int
-	NATSDupeWindow time.Duration
-	NATSReplayMode string
-	NATSReplaySeq  uint64
-	NATSReplayTime string
-	PostgresDSN    string
-	ClickHouseDSN  string
+	ServiceName               string
+	HTTPAddr                  string
+	MetricsAddr               string
+	LogLevel                  string
+	NATSURL                   string
+	NATSStream                string
+	NATSSubject               string
+	NATSDLQSubject            string
+	NATSDurable               string
+	NATSMaxDeliver            int
+	NATSDupeWindow            time.Duration
+	NATSReplayMode            string
+	NATSReplaySeq             uint64
+	NATSReplayTime            string
+	NATSBackpressureStrategy  string
+	NATSQueueLagHighWatermark uint64
+	NATSBackpressureDelay     time.Duration
+	PostgresDSN               string
+	ClickHouseDSN             string
 }
 
 func Load(defaultServiceName, defaultHTTPAddr string) Config {
 	return Config{
-		ServiceName:    envOrDefault("SERVICE_NAME", defaultServiceName),
-		HTTPAddr:       envOrDefault("HTTP_ADDR", defaultHTTPAddr),
-		MetricsAddr:    envOrDefault("METRICS_ADDR", defaultMetricsAddr(defaultServiceName)),
-		LogLevel:       envOrDefault("LOG_LEVEL", "info"),
-		NATSURL:        envOrDefault("NATS_URL", "nats://localhost:4222"),
-		NATSStream:     envOrDefault("NATS_STREAM", "LOGS"),
-		NATSSubject:    envOrDefault("NATS_SUBJECT", "logs.raw"),
-		NATSDLQSubject: envOrDefault("NATS_DLQ_SUBJECT", "logs.raw.dlq"),
-		NATSDurable:    envOrDefault("NATS_DURABLE", defaultServiceName),
-		NATSMaxDeliver: envOrDefaultInt("NATS_MAX_DELIVER", 5),
-		NATSDupeWindow: envOrDefaultDuration("NATS_DEDUPE_WINDOW", 2*time.Minute),
-		NATSReplayMode: strings.ToLower(envOrDefault("NATS_REPLAY_MODE", "live")),
-		NATSReplaySeq:  envOrDefaultUint64("NATS_REPLAY_SEQUENCE", 0),
-		NATSReplayTime: envOrDefault("NATS_REPLAY_TIME", ""),
-		PostgresDSN:    envOrDefault("POSTGRES_DSN", "postgres://logagg:logagg@localhost:55432/logagg?sslmode=disable"),
-		ClickHouseDSN:  envOrDefault("CLICKHOUSE_DSN", "http://localhost:8123"),
+		ServiceName:               envOrDefault("SERVICE_NAME", defaultServiceName),
+		HTTPAddr:                  envOrDefault("HTTP_ADDR", defaultHTTPAddr),
+		MetricsAddr:               envOrDefault("METRICS_ADDR", defaultMetricsAddr(defaultServiceName)),
+		LogLevel:                  envOrDefault("LOG_LEVEL", "info"),
+		NATSURL:                   envOrDefault("NATS_URL", "nats://localhost:4222"),
+		NATSStream:                envOrDefault("NATS_STREAM", "LOGS"),
+		NATSSubject:               envOrDefault("NATS_SUBJECT", "logs.raw"),
+		NATSDLQSubject:            envOrDefault("NATS_DLQ_SUBJECT", "logs.raw.dlq"),
+		NATSDurable:               envOrDefault("NATS_DURABLE", defaultServiceName),
+		NATSMaxDeliver:            envOrDefaultInt("NATS_MAX_DELIVER", 5),
+		NATSDupeWindow:            envOrDefaultDuration("NATS_DEDUPE_WINDOW", 2*time.Minute),
+		NATSReplayMode:            strings.ToLower(envOrDefault("NATS_REPLAY_MODE", "live")),
+		NATSReplaySeq:             envOrDefaultUint64("NATS_REPLAY_SEQUENCE", 0),
+		NATSReplayTime:            envOrDefault("NATS_REPLAY_TIME", ""),
+		NATSBackpressureStrategy:  strings.ToLower(envOrDefault("NATS_BACKPRESSURE_STRATEGY", "off")),
+		NATSQueueLagHighWatermark: envOrDefaultUint64("NATS_QUEUE_LAG_HIGH_WATERMARK", 10000),
+		NATSBackpressureDelay:     envOrDefaultDuration("NATS_BACKPRESSURE_DELAY", 250*time.Millisecond),
+		PostgresDSN:               envOrDefault("POSTGRES_DSN", "postgres://logagg:logagg@localhost:55432/logagg?sslmode=disable"),
+		ClickHouseDSN:             envOrDefault("CLICKHOUSE_DSN", "http://localhost:8123"),
 	}
 }
 
