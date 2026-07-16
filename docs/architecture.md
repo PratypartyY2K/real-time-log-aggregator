@@ -140,6 +140,15 @@ Current read API:
 
 ## Message Contract
 
+The ingest HTTP contract is versioned independently from the JetStream event contract.
+
+Current request-side policy:
+
+- clients must send `schema_version: "logs.ingest.v1"` to `POST /v1/logs`
+- ingest performs strict request-shape validation before auth and publish
+- canonical transformations happen at ingest for supported variations such as level aliases, whitespace trimming, and UTC timestamp normalization
+- incompatible request-shape changes should be introduced as a new ingest schema version rather than silently broadening `v1`
+
 The primary transport contract is `logs.raw.v1`.
 
 Fields:

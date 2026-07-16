@@ -7,13 +7,18 @@ This document describes the HTTP surfaces implemented today. Transport details f
 Current behavior:
 
 - requires `X-API-Key`
+- requires `schema_version: "logs.ingest.v1"` in the request body
 - validates the API key against Postgres `api_keys.key_hash`
 - requires the key to be authorized for the request `service` and `env`
 - enforces per-key request rate limiting from `api_keys.rate_limit_per_sec`
 - accepts one JSON batch
 - enforces a 1 MiB request-body limit
 - enforces a default maximum of 1000 log records per batch
-- validates RFC3339 timestamps
+- rejects unknown top-level request fields
+- validates and canonicalizes `service`, `env`, and `source`
+- validates RFC3339 timestamps and canonicalizes them to UTC
+- canonicalizes supported level aliases such as `warning -> warn` and `err -> error`
+- rejects unsupported log levels and unsupported nested object field values
 - publishes a versioned `logs.raw.v1` event to JetStream
 - computes a deterministic batch fingerprint and uses it as the request identifier
 - returns the same deterministic identifier in both `request_id` and `fingerprint` on the wire contract
@@ -23,6 +28,7 @@ Example request:
 
 ```json
 {
+  "schema_version": "logs.ingest.v1",
   "service": "checkout",
   "env": "prod",
   "source": "app",
@@ -55,6 +61,15 @@ Response shape:
   "status": "queued"
 }
 ```
+
+Validation rules:
+
+- `schema_version` is required and must currently be `logs.ingest.v1`
+- `service`, `env`, and `source` are required and normalized to canonical tag form
+- log timestamps must be valid RFC3339 values
+- log levels must be from the supported set after canonicalization
+- nested object field values are rejected at ingest
+- unsupported top-level request fields are rejected
 
 For local testing, hash a plaintext key with SHA-256 and insert it into Postgres:
 
@@ -142,6 +157,15 @@ Validation rules:
 - `start` must be before `end`
 - `service` and `level` accept only safe tag characters
 - `limit` must be a positive integer and is capped at `1000`
+
+## Schema evolution
+
+Current strategy:
+
+- request validation is versioned separately from the internal JetStream event
+- `POST /v1/logs` currently accepts `logs.ingest.v1`
+- incompatible request-shape changes should be introduced as a new ingest schema version, not by silently loosening `v1`
+- the queue event remains versioned as `logs.raw.v1`
 
 ## `GET /v1/status`
 
