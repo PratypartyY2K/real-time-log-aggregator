@@ -30,6 +30,7 @@ func TestHandlerAcceptsValidBatch(t *testing.T) {
 	publisher := &stubPublisher{}
 	observer := &stubObserver{}
 	body := `{
+		"schema_version":"logs.ingest.v1",
 		"service":"checkout",
 		"env":"prod",
 		"source":"app",
@@ -76,6 +77,9 @@ func TestHandlerAcceptsValidBatch(t *testing.T) {
 	}
 	if publisher.batch.TenantID != 1 {
 		t.Fatalf("expected published tenant id 1, got %d", publisher.batch.TenantID)
+	}
+	if publisher.batch.Env != "prod" || publisher.batch.Source != "app" {
+		t.Fatalf("expected canonical env/source, got env=%q source=%q", publisher.batch.Env, publisher.batch.Source)
 	}
 	if len(observer.observations) != 1 || observer.observations[0].Outcome != AuthOutcomeAuthorized {
 		t.Fatalf("expected authorized observation, got %#v", observer.observations)
@@ -125,8 +129,10 @@ func TestBatchFingerprintIsDeterministic(t *testing.T) {
 
 func TestValidateRejectsBadTimestamp(t *testing.T) {
 	req := BatchRequest{
-		Service: "checkout",
-		Env:     "prod",
+		SchemaVersion: IngestSchemaVersion,
+		Service:       "checkout",
+		Env:           "prod",
+		Source:        "app",
 		Logs: []LogRecord{
 			{
 				Timestamp: "07-07-2026",
@@ -136,13 +142,14 @@ func TestValidateRejectsBadTimestamp(t *testing.T) {
 		},
 	}
 
-	if err := req.Validate(1000); err == nil {
+	if _, err := req.NormalizeAndValidate(1000); err == nil {
 		t.Fatal("expected validation error")
 	}
 }
 
 func TestHandlerReturnsServiceUnavailableWhenPublishFails(t *testing.T) {
 	body := `{
+		"schema_version":"logs.ingest.v1",
 		"service":"checkout",
 		"env":"prod",
 		"source":"app",
@@ -176,7 +183,7 @@ func TestHandlerReturnsServiceUnavailableWhenPublishFails(t *testing.T) {
 }
 
 func TestHandlerRejectsInvalidAPIKey(t *testing.T) {
-	body := `{"service":"checkout","env":"prod","logs":[{"timestamp":"2026-07-07T16:00:00Z","level":"info","message":"booting"}]}`
+	body := `{"schema_version":"logs.ingest.v1","service":"checkout","env":"prod","source":"app","logs":[{"timestamp":"2026-07-07T16:00:00Z","level":"info","message":"booting"}]}`
 	req := httptest.NewRequest(http.MethodPost, "/v1/logs", bytes.NewBufferString(body))
 	req.Header.Set(apiKeyHeader, "bad-key")
 	rec := httptest.NewRecorder()
@@ -199,7 +206,7 @@ func TestHandlerRejectsInvalidAPIKey(t *testing.T) {
 }
 
 func TestHandlerReturnsServiceUnavailableWhenAuthFails(t *testing.T) {
-	body := `{"service":"checkout","env":"prod","logs":[{"timestamp":"2026-07-07T16:00:00Z","level":"info","message":"booting"}]}`
+	body := `{"schema_version":"logs.ingest.v1","service":"checkout","env":"prod","source":"app","logs":[{"timestamp":"2026-07-07T16:00:00Z","level":"info","message":"booting"}]}`
 	req := httptest.NewRequest(http.MethodPost, "/v1/logs", bytes.NewBufferString(body))
 	req.Header.Set(apiKeyHeader, "local-dev-key")
 	rec := httptest.NewRecorder()
@@ -222,7 +229,7 @@ func TestHandlerReturnsServiceUnavailableWhenAuthFails(t *testing.T) {
 }
 
 func TestHandlerRejectsUnauthorizedServiceScope(t *testing.T) {
-	body := `{"service":"checkout","env":"prod","logs":[{"timestamp":"2026-07-07T16:00:00Z","level":"info","message":"booting"}]}`
+	body := `{"schema_version":"logs.ingest.v1","service":"checkout","env":"prod","source":"app","logs":[{"timestamp":"2026-07-07T16:00:00Z","level":"info","message":"booting"}]}`
 	req := httptest.NewRequest(http.MethodPost, "/v1/logs", bytes.NewBufferString(body))
 	req.Header.Set(apiKeyHeader, "scoped-key")
 	rec := httptest.NewRecorder()
@@ -245,7 +252,7 @@ func TestHandlerRejectsUnauthorizedServiceScope(t *testing.T) {
 }
 
 func TestHandlerRejectsRateLimitedAPIKey(t *testing.T) {
-	body := `{"service":"checkout","env":"prod","logs":[{"timestamp":"2026-07-07T16:00:00Z","level":"info","message":"booting"}]}`
+	body := `{"schema_version":"logs.ingest.v1","service":"checkout","env":"prod","source":"app","logs":[{"timestamp":"2026-07-07T16:00:00Z","level":"info","message":"booting"}]}`
 	req := httptest.NewRequest(http.MethodPost, "/v1/logs", bytes.NewBufferString(body))
 	req.Header.Set(apiKeyHeader, "local-dev-key")
 	rec := httptest.NewRecorder()
@@ -268,7 +275,7 @@ func TestHandlerRejectsRateLimitedAPIKey(t *testing.T) {
 }
 
 func TestHandlerRejectsTooManyLogsForConfiguredLimit(t *testing.T) {
-	body := `{"service":"checkout","env":"prod","logs":[{"timestamp":"2026-07-07T16:00:00Z","level":"info","message":"one"},{"timestamp":"2026-07-07T16:00:01Z","level":"info","message":"two"}]}`
+	body := `{"schema_version":"logs.ingest.v1","service":"checkout","env":"prod","source":"app","logs":[{"timestamp":"2026-07-07T16:00:00Z","level":"info","message":"one"},{"timestamp":"2026-07-07T16:00:01Z","level":"info","message":"two"}]}`
 	req := httptest.NewRequest(http.MethodPost, "/v1/logs", bytes.NewBufferString(body))
 	req.Header.Set(apiKeyHeader, "local-dev-key")
 	rec := httptest.NewRecorder()
@@ -291,7 +298,7 @@ func TestHandlerRejectsTooManyLogsForConfiguredLimit(t *testing.T) {
 }
 
 func TestHandlerRejectsTooLargeRequestBody(t *testing.T) {
-	body := `{"service":"checkout","env":"prod","logs":[{"timestamp":"2026-07-07T16:00:00Z","level":"info","message":"` + string(bytes.Repeat([]byte("x"), 64)) + `"}]}`
+	body := `{"schema_version":"logs.ingest.v1","service":"checkout","env":"prod","source":"app","logs":[{"timestamp":"2026-07-07T16:00:00Z","level":"info","message":"` + string(bytes.Repeat([]byte("x"), 64)) + `"}]}`
 	req := httptest.NewRequest(http.MethodPost, "/v1/logs", bytes.NewBufferString(body))
 	req.Header.Set(apiKeyHeader, "local-dev-key")
 	rec := httptest.NewRecorder()
@@ -311,6 +318,116 @@ func TestHandlerRejectsTooLargeRequestBody(t *testing.T) {
 	}
 	if len(observer.observations) != 1 || observer.observations[0].Outcome != AuthOutcomeRequestBodyTooLarge {
 		t.Fatalf("expected request_body_too_large observation, got %#v", observer.observations)
+	}
+}
+
+func TestNormalizeAndValidateTransformsCanonicalFields(t *testing.T) {
+	req := BatchRequest{
+		SchemaVersion: "logs.ingest.v1",
+		Service:       " Checkout ",
+		Env:           " PROD ",
+		Source:        " App ",
+		Logs: []LogRecord{
+			{
+				Timestamp: "2026-07-07T16:00:00-07:00",
+				Level:     " WARNING ",
+				Message:   " database timeout ",
+				Fields: map[string]any{
+					" host ": " api-1 ",
+					"region": " us-west-2 ",
+				},
+			},
+		},
+	}
+
+	normalized, err := req.NormalizeAndValidate(1000)
+	if err != nil {
+		t.Fatalf("expected normalized request, got %v", err)
+	}
+	if normalized.Service != "checkout" || normalized.Env != "prod" || normalized.Source != "app" {
+		t.Fatalf("expected canonical tags, got %+v", normalized)
+	}
+	if normalized.Logs[0].Timestamp != "2026-07-07T23:00:00Z" {
+		t.Fatalf("expected canonical UTC timestamp, got %q", normalized.Logs[0].Timestamp)
+	}
+	if normalized.Logs[0].Level != "warn" {
+		t.Fatalf("expected canonical level warn, got %q", normalized.Logs[0].Level)
+	}
+	if normalized.Logs[0].Message != "database timeout" {
+		t.Fatalf("expected trimmed message, got %q", normalized.Logs[0].Message)
+	}
+	if normalized.Logs[0].Fields["host"] != "api-1" {
+		t.Fatalf("expected trimmed host field, got %#v", normalized.Logs[0].Fields["host"])
+	}
+}
+
+func TestNormalizeAndValidateRejectsMissingSchemaVersion(t *testing.T) {
+	req := BatchRequest{
+		Service: "checkout",
+		Env:     "prod",
+		Source:  "app",
+		Logs: []LogRecord{
+			{Timestamp: "2026-07-07T16:00:00Z", Level: "info", Message: "booting"},
+		},
+	}
+
+	if _, err := req.NormalizeAndValidate(1000); err == nil || err.Error() != "schema_version is required" {
+		t.Fatalf("expected schema_version error, got %v", err)
+	}
+}
+
+func TestNormalizeAndValidateRejectsUnsupportedSchemaVersion(t *testing.T) {
+	req := BatchRequest{
+		SchemaVersion: "logs.ingest.v2",
+		Service:       "checkout",
+		Env:           "prod",
+		Source:        "app",
+		Logs: []LogRecord{
+			{Timestamp: "2026-07-07T16:00:00Z", Level: "info", Message: "booting"},
+		},
+	}
+
+	if _, err := req.NormalizeAndValidate(1000); err == nil || err.Error() != `unsupported schema_version "logs.ingest.v2"` {
+		t.Fatalf("expected unsupported schema_version error, got %v", err)
+	}
+}
+
+func TestNormalizeAndValidateRejectsUnsupportedLevel(t *testing.T) {
+	req := BatchRequest{
+		SchemaVersion: IngestSchemaVersion,
+		Service:       "checkout",
+		Env:           "prod",
+		Source:        "app",
+		Logs: []LogRecord{
+			{Timestamp: "2026-07-07T16:00:00Z", Level: "verbose", Message: "booting"},
+		},
+	}
+
+	if _, err := req.NormalizeAndValidate(1000); err == nil || err.Error() != "log[0]: level is unsupported" {
+		t.Fatalf("expected unsupported level error, got %v", err)
+	}
+}
+
+func TestNormalizeAndValidateRejectsNestedFieldObjects(t *testing.T) {
+	req := BatchRequest{
+		SchemaVersion: IngestSchemaVersion,
+		Service:       "checkout",
+		Env:           "prod",
+		Source:        "app",
+		Logs: []LogRecord{
+			{
+				Timestamp: "2026-07-07T16:00:00Z",
+				Level:     "info",
+				Message:   "booting",
+				Fields: map[string]any{
+					"region": map[string]any{"name": "us-west-2"},
+				},
+			},
+		},
+	}
+
+	if _, err := req.NormalizeAndValidate(1000); err == nil || err.Error() != "log[0]: fields[\"region\"]: unsupported field value type map[string]interface {}" {
+		t.Fatalf("expected nested fields error, got %v", err)
 	}
 }
 

@@ -33,6 +33,7 @@ func TestIngestQueueProcessorFlow(t *testing.T) {
 	})
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/logs", bytes.NewBufferString(`{
+		"schema_version":"logs.ingest.v1",
 		"service":"checkout",
 		"env":"prod",
 		"source":"app",
