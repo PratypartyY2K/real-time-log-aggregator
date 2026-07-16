@@ -6,7 +6,9 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -14,6 +16,8 @@ import (
 )
 
 const apiKeyHeader = "X-API-Key"
+
+const IngestSchemaVersion = "logs.ingest.v1"
 
 type Config struct {
 	MaxBodyBytes  int64
@@ -64,10 +68,11 @@ type Publisher interface {
 }
 
 type BatchRequest struct {
-	Service string      `json:"service"`
-	Env     string      `json:"env"`
-	Source  string      `json:"source"`
-	Logs    []LogRecord `json:"logs"`
+	SchemaVersion string      `json:"schema_version"`
+	Service       string      `json:"service"`
+	Env           string      `json:"env"`
+	Source        string      `json:"source"`
+	Logs          []LogRecord `json:"logs"`
 }
 
 type LogRecord struct {
@@ -122,6 +127,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	var req BatchRequest
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
+	decoder.UseNumber()
 
 	if err := decoder.Decode(&req); err != nil {
 		var maxErr *http.MaxBytesError
@@ -141,7 +147,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := req.Validate(h.maxLogEntries); err != nil {
+	req, err := req.NormalizeAndValidate(h.maxLogEntries)
+	if err != nil {
 		if errors.Is(err, errBatchTooLarge) {
 			h.observeAuth(r.Context(), AuthObservation{
 				Outcome: AuthOutcomeBatchTooLarge,
@@ -264,45 +271,89 @@ func toLogsRawEvent(requestID, receivedAt string, tenantID int64, req BatchReque
 
 var errBatchTooLarge = errors.New("batch exceeds max log entries")
 
-func (r BatchRequest) Validate(maxLogEntries int) error {
-	if strings.TrimSpace(r.Service) == "" {
-		return errors.New("service is required")
+func (r BatchRequest) NormalizeAndValidate(maxLogEntries int) (BatchRequest, error) {
+	r.SchemaVersion = strings.TrimSpace(r.SchemaVersion)
+	if r.SchemaVersion == "" {
+		return BatchRequest{}, errors.New("schema_version is required")
 	}
-	if strings.TrimSpace(r.Env) == "" {
-		return errors.New("env is required")
+	if r.SchemaVersion != IngestSchemaVersion {
+		return BatchRequest{}, fmt.Errorf("unsupported schema_version %q", r.SchemaVersion)
+	}
+
+	r.Service = normalizeTagValue(r.Service)
+	if r.Service == "" {
+		return BatchRequest{}, errors.New("service is required")
+	}
+	if !isSafeTagValue(r.Service) {
+		return BatchRequest{}, errors.New("service contains unsupported characters")
+	}
+
+	r.Env = normalizeTagValue(r.Env)
+	if r.Env == "" {
+		return BatchRequest{}, errors.New("env is required")
+	}
+	if !isSafeTagValue(r.Env) {
+		return BatchRequest{}, errors.New("env contains unsupported characters")
+	}
+
+	r.Source = normalizeTagValue(r.Source)
+	if r.Source == "" {
+		return BatchRequest{}, errors.New("source is required")
+	}
+	if !isSafeTagValue(r.Source) {
+		return BatchRequest{}, errors.New("source contains unsupported characters")
 	}
 	if len(r.Logs) == 0 {
-		return errors.New("at least one log entry is required")
+		return BatchRequest{}, errors.New("at least one log entry is required")
 	}
 	if maxLogEntries <= 0 {
 		maxLogEntries = 1000
 	}
 	if len(r.Logs) > maxLogEntries {
-		return errors.Join(errBatchTooLarge, errors.New("batch exceeds "+itoa(maxLogEntries)+" log entries"))
+		return BatchRequest{}, errors.Join(errBatchTooLarge, errors.New("batch exceeds "+itoa(maxLogEntries)+" log entries"))
 	}
 
+	normalizedLogs := make([]LogRecord, 0, len(r.Logs))
 	for i, log := range r.Logs {
-		if err := log.Validate(); err != nil {
-			return errors.New("log[" + itoa(i) + "]: " + err.Error())
+		normalizedLog, err := log.NormalizeAndValidate()
+		if err != nil {
+			return BatchRequest{}, errors.New("log[" + itoa(i) + "]: " + err.Error())
 		}
+		normalizedLogs = append(normalizedLogs, normalizedLog)
 	}
-	return nil
+	r.Logs = normalizedLogs
+	return r, nil
 }
 
-func (r LogRecord) Validate() error {
+func (r LogRecord) NormalizeAndValidate() (LogRecord, error) {
 	if strings.TrimSpace(r.Timestamp) == "" {
-		return errors.New("timestamp is required")
+		return LogRecord{}, errors.New("timestamp is required")
 	}
-	if _, err := time.Parse(time.RFC3339, r.Timestamp); err != nil {
-		return errors.New("timestamp must be RFC3339")
+	parsed, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(r.Timestamp))
+	if err != nil {
+		return LogRecord{}, errors.New("timestamp must be RFC3339")
 	}
-	if strings.TrimSpace(r.Level) == "" {
-		return errors.New("level is required")
+
+	level, ok := normalizeIngestLevel(r.Level)
+	if !ok {
+		return LogRecord{}, errors.New("level is unsupported")
 	}
-	if strings.TrimSpace(r.Message) == "" {
-		return errors.New("message is required")
+	message := strings.TrimSpace(r.Message)
+	if message == "" {
+		return LogRecord{}, errors.New("message is required")
 	}
-	return nil
+
+	fields, err := normalizeFields(r.Fields)
+	if err != nil {
+		return LogRecord{}, err
+	}
+
+	return LogRecord{
+		Timestamp: parsed.UTC().Format(time.RFC3339Nano),
+		Level:     level,
+		Message:   message,
+		Fields:    fields,
+	}, nil
 }
 
 func writeError(w http.ResponseWriter, status int, message string) {
@@ -333,16 +384,16 @@ type fingerprintLogItem struct {
 func batchFingerprint(tenantID int64, req BatchRequest) string {
 	payload := fingerprintBatch{
 		TenantID: uint64(tenantID),
-		Service:  strings.ToLower(strings.TrimSpace(req.Service)),
-		Env:      strings.ToLower(strings.TrimSpace(req.Env)),
-		Source:   strings.ToLower(strings.TrimSpace(req.Source)),
+		Service:  normalizeTagValue(req.Service),
+		Env:      normalizeTagValue(req.Env),
+		Source:   normalizeTagValue(req.Source),
 		Logs:     make([]fingerprintLogItem, 0, len(req.Logs)),
 	}
 
 	for _, record := range req.Logs {
 		payload.Logs = append(payload.Logs, fingerprintLogItem{
 			Timestamp: strings.TrimSpace(record.Timestamp),
-			Level:     strings.ToLower(strings.TrimSpace(record.Level)),
+			Level:     normalizeTagValue(record.Level),
 			Message:   strings.TrimSpace(record.Message),
 			Fields:    record.Fields,
 		})
@@ -362,6 +413,113 @@ func batchFingerprint(tenantID int64, req BatchRequest) string {
 
 	sum := sha256.Sum256(encoded)
 	return hex.EncodeToString(sum[:16])
+}
+
+func normalizeTagValue(value string) string {
+	return strings.ToLower(strings.TrimSpace(value))
+}
+
+func isSafeTagValue(value string) bool {
+	for _, r := range value {
+		switch {
+		case r >= 'a' && r <= 'z':
+		case r >= '0' && r <= '9':
+		case r == '.', r == '_', r == '-', r == ':':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func normalizeIngestLevel(value string) (string, bool) {
+	switch normalizeTagValue(value) {
+	case "info", "information", "informational":
+		return "info", true
+	case "warn", "warning":
+		return "warn", true
+	case "error", "err":
+		return "error", true
+	case "debug":
+		return "debug", true
+	case "trace":
+		return "trace", true
+	case "fatal", "critical", "panic":
+		return "fatal", true
+	default:
+		return "", false
+	}
+}
+
+func normalizeFields(fields map[string]any) (map[string]any, error) {
+	if len(fields) == 0 {
+		return nil, nil
+	}
+
+	keys := make([]string, 0, len(fields))
+	normalized := make(map[string]any, len(fields))
+	for key := range fields {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	for _, key := range keys {
+		normalizedKey := strings.TrimSpace(key)
+		if normalizedKey == "" {
+			return nil, errors.New("fields keys must be non-empty")
+		}
+		if !isSafeFieldKey(normalizedKey) {
+			return nil, fmt.Errorf("fields key %q contains unsupported characters", normalizedKey)
+		}
+		value, err := normalizeFieldValue(fields[key])
+		if err != nil {
+			return nil, fmt.Errorf("fields[%q]: %w", normalizedKey, err)
+		}
+		normalized[normalizedKey] = value
+	}
+
+	return normalized, nil
+}
+
+func isSafeFieldKey(value string) bool {
+	for _, r := range value {
+		switch {
+		case r >= 'a' && r <= 'z':
+		case r >= 'A' && r <= 'Z':
+		case r >= '0' && r <= '9':
+		case r == '.', r == '_', r == '-', r == ':':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func normalizeFieldValue(value any) (any, error) {
+	switch typed := value.(type) {
+	case nil:
+		return nil, nil
+	case bool:
+		return typed, nil
+	case string:
+		return strings.TrimSpace(typed), nil
+	case json.Number:
+		return typed, nil
+	case float64:
+		return typed, nil
+	case []any:
+		normalized := make([]any, 0, len(typed))
+		for _, item := range typed {
+			value, err := normalizeFieldValue(item)
+			if err != nil {
+				return nil, err
+			}
+			normalized = append(normalized, value)
+		}
+		return normalized, nil
+	default:
+		return nil, fmt.Errorf("unsupported field value type %T", value)
+	}
 }
 
 func itoa(v int) string {
