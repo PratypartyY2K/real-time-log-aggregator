@@ -33,28 +33,105 @@ docs/                   architecture and milestone notes
 
 ## Running locally
 
-1. Start infrastructure:
+The local setup uses Docker Compose for infrastructure only. `ingest-api`, `processor`, `query-api`, and helper commands run on the host with `go run`.
+
+## Docker bootstrap
+
+1. Start local infrastructure:
 
 ```bash
 docker compose -f deployments/local/docker-compose.yml up -d
 ```
 
-2. Apply Postgres migrations:
+2. Confirm the containers are up:
+
+```bash
+docker compose -f deployments/local/docker-compose.yml ps
+```
+
+3. Initialize the Postgres schema:
 
 ```bash
 go run ./cmd/postgres-migrate
 ```
 
-3. Run a service:
+`make migrate-postgres` runs the same migration command through the project `Makefile`.
+
+4. Initialize the ClickHouse schema:
+
+```bash
+cat db/clickhouse/001_logs.sql | docker compose -f deployments/local/docker-compose.yml exec -T clickhouse clickhouse-client --multiquery
+```
+
+5. Provision JetStream stream and consumer state:
 
 ```bash
 go run ./cmd/nats-setup
+```
+
+6. Seed local auth and service metadata:
+
+Generate a local API key hash:
+
+```bash
+printf 'local-dev-key' | shasum -a 256
+```
+
+Insert the tenant, service, and API key:
+
+```sql
+INSERT INTO tenants (name) VALUES ('local') ON CONFLICT (name) DO NOTHING;
+
+INSERT INTO services (tenant_id, name, environment)
+SELECT id, 'checkout', 'prod'
+FROM tenants
+WHERE name = 'local'
+ON CONFLICT (tenant_id, name, environment) DO NOTHING;
+
+INSERT INTO api_keys (tenant_id, key_hash, status)
+SELECT id, '<sha256-of-local-dev-key>', 'active'
+FROM tenants
+WHERE name = 'local'
+ON CONFLICT (key_hash) DO NOTHING;
+```
+
+You can apply the SQL from the host with `psql` if it is installed locally, or inside the container:
+
+```bash
+docker compose -f deployments/local/docker-compose.yml exec -it postgres psql -U logagg -d logagg
+```
+
+Leave `api_keys.service_id` as `NULL` for a tenant-wide key, or set it to a `services.id` value to restrict the key to one service/environment pair.
+
+## Service startup
+
+After the Docker-backed infrastructure and schemas are ready, start the Go services on the host in separate terminals:
+
+Terminal 1:
+
+```bash
 go run ./cmd/ingest-api
+```
+
+Terminal 2:
+
+```bash
 go run ./cmd/query-api
+```
+
+Terminal 3:
+
+```bash
 go run ./cmd/processor
 ```
 
-`make migrate-postgres` runs the same migration command through the project `Makefile`.
+Optional checks:
+
+```bash
+curl -sf http://localhost:8080/readyz
+curl -sf http://localhost:8081/readyz
+curl -sf http://localhost:9092/readyz
+```
 
 ## Environment variables
 
@@ -75,31 +152,11 @@ go run ./cmd/processor
 - `POSTGRES_DSN`
 - `CLICKHOUSE_DSN`
 
-Each service has sane local defaults; see `internal/config/config.go`.
+Each service has sane local defaults for the Docker Compose environment; see `internal/config/config.go`.
 
 Runtime services expose Prometheus-compatible metrics on `/metrics`. `ingest-api` and `query-api` serve metrics on their main HTTP port. `processor` serves metrics on `METRICS_ADDR`, which defaults to `:9092`.
 
-Before `ingest-api` can authorize requests, insert at least one active API key row in Postgres and a matching service record. The `api_keys.key_hash` column stores a SHA-256 hex digest of the plaintext key.
-
-Example local bootstrap:
-
-```sql
-INSERT INTO tenants (name) VALUES ('local') ON CONFLICT (name) DO NOTHING;
-
-INSERT INTO services (tenant_id, name, environment)
-SELECT id, 'checkout', 'prod'
-FROM tenants
-WHERE name = 'local'
-ON CONFLICT (tenant_id, name, environment) DO NOTHING;
-
-INSERT INTO api_keys (tenant_id, key_hash, status)
-SELECT id, '<sha256-of-local-dev-key>', 'active'
-FROM tenants
-WHERE name = 'local'
-ON CONFLICT (key_hash) DO NOTHING;
-```
-
-Leave `api_keys.service_id` as `NULL` for a tenant-wide key, or set it to a `services.id` value to restrict the key to one service/environment pair.
+Before `ingest-api` can authorize requests, Postgres must contain at least one active API key row and a matching service record. The `api_keys.key_hash` column stores a SHA-256 hex digest of the plaintext key.
 
 ## JetStream contract
 
