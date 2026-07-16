@@ -55,6 +55,14 @@ Notes:
 - Ingestion into JetStream is idempotent within the stream duplicate window via the batch `fingerprint`.
 - End-to-end processing is `at-least-once`, not exactly-once.
 - The processor makes replay and redelivery safe by skipping batches whose `request_id` already exists in ClickHouse.
+- Queue lag is observable through `logagg_queue_consumer_pending` and related queue metrics.
+
+## Backpressure
+
+- `NATS_BACKPRESSURE_STRATEGY=off` leaves producers unconstrained beyond normal request limits.
+- `NATS_BACKPRESSURE_STRATEGY=delay` slows producers by `NATS_BACKPRESSURE_DELAY` once consumer lag crosses `NATS_QUEUE_LAG_HIGH_WATERMARK`.
+- `NATS_BACKPRESSURE_STRATEGY=reject` returns `429 Too Many Requests` once consumer lag crosses `NATS_QUEUE_LAG_HIGH_WATERMARK`.
+- JetStream remains the primary buffer; delay and reject modes are protective controls for sustained backlog.
 
 ## Dead-letter handling
 

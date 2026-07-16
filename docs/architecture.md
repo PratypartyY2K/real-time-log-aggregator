@@ -343,6 +343,7 @@ Current metric families include:
 
 - HTTP request metrics
 - ingest auth and validation outcomes
+- queue lag and consumer backlog metrics
 - processor batch counts
 - processor processed log counts
 - processor cumulative batch duration
@@ -405,12 +406,21 @@ Defaults are local-development-friendly and are used by the Docker Compose envir
 - horizontally scalable for HTTP write traffic
 - limited by process-local rate limiting if multiple replicas are used
 - depends on JetStream for buffering under downstream pressure
+- can slow or reject producers when consumer lag crosses the configured watermark
 
 `processor`:
 
 - currently modeled around one logical durable consumer for ordered batch handling
 - replay modes use ephemeral pull subscriptions
 - idempotent batch checks reduce the risk of duplicate writes during restarts or replays
+- should scale from queue lag rather than CPU alone because backlog is the primary user-visible pressure signal
+
+Manual autoscaling strategy:
+
+- treat `logagg_queue_consumer_pending` as the primary scale signal
+- corroborate it with `logagg_processor_batches_total` and `logagg_processor_logs_total` drain rate
+- scale up when backlog remains above the chosen watermark for a sustained interval and downstream stores are healthy
+- scale down only after backlog returns near zero and remains stable
 
 `query-api`:
 

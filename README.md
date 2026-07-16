@@ -133,6 +133,29 @@ curl -sf http://localhost:8081/readyz
 curl -sf http://localhost:9092/readyz
 ```
 
+## Load testing
+
+Use the built-in burst load generator against local `ingest-api`:
+
+```bash
+go run ./cmd/loadtest \
+  -url http://localhost:8080/v1/logs \
+  -api-key local-dev-key \
+  -bursts 5 \
+  -burst-size 100 \
+  -concurrency 20 \
+  -logs-per-request 25 \
+  -pause 2s
+```
+
+What to watch during a run:
+
+- `GET /metrics` on `ingest-api` for HTTP request rates and status codes
+- `GET /metrics` on `processor` for `logagg_queue_consumer_pending`, `logagg_queue_consumer_ack_pending`, and processor throughput
+- JetStream growth and drain rate through the new queue lag metrics
+- `429` responses when `reject` backpressure is enabled
+- increased request latency when `delay` backpressure is enabled
+
 ## Environment variables
 
 - `SERVICE_NAME`
@@ -149,12 +172,25 @@ curl -sf http://localhost:9092/readyz
 - `NATS_REPLAY_MODE`
 - `NATS_REPLAY_SEQUENCE`
 - `NATS_REPLAY_TIME`
+- `NATS_BACKPRESSURE_STRATEGY`
+- `NATS_QUEUE_LAG_HIGH_WATERMARK`
+- `NATS_BACKPRESSURE_DELAY`
 - `POSTGRES_DSN`
 - `CLICKHOUSE_DSN`
 
 Each service has sane local defaults for the Docker Compose environment; see `internal/config/config.go`.
 
 Runtime services expose Prometheus-compatible metrics on `/metrics`. `ingest-api` and `query-api` serve metrics on their main HTTP port. `processor` serves metrics on `METRICS_ADDR`, which defaults to `:9092`.
+
+Queue lag metrics are exposed from both `ingest-api` and `processor`:
+
+- `logagg_queue_monitor_up`
+- `logagg_queue_stream_messages`
+- `logagg_queue_stream_bytes`
+- `logagg_queue_consumer_pending`
+- `logagg_queue_consumer_ack_pending`
+- `logagg_queue_consumer_waiting`
+- `logagg_queue_consumer_redelivered`
 
 Before `ingest-api` can authorize requests, Postgres must contain at least one active API key row and a matching service record. The `api_keys.key_hash` column stores a SHA-256 hex digest of the plaintext key.
 
@@ -167,6 +203,48 @@ Current delivery model:
 - ingestion into JetStream is idempotent within the configured duplicate window
 - processing semantics are `at-least-once`
 - processor replay can start from the full stream, a JetStream sequence, or an RFC3339 timestamp via `NATS_REPLAY_MODE`
+- backpressure can be configured as `off`, `delay`, or `reject` via `NATS_BACKPRESSURE_STRATEGY`
+
+## Backpressure
+
+Current strategy:
+
+- durable buffering happens in JetStream
+- producers can be slowed with `NATS_BACKPRESSURE_STRATEGY=delay`
+- producers can be rejected with `NATS_BACKPRESSURE_STRATEGY=reject`
+- the decision is based on `logagg_queue_consumer_pending` crossing `NATS_QUEUE_LAG_HIGH_WATERMARK`
+
+Recommended local settings for testing:
+
+```bash
+export NATS_BACKPRESSURE_STRATEGY=reject
+export NATS_QUEUE_LAG_HIGH_WATERMARK=500
+```
+
+Or:
+
+```bash
+export NATS_BACKPRESSURE_STRATEGY=delay
+export NATS_QUEUE_LAG_HIGH_WATERMARK=500
+export NATS_BACKPRESSURE_DELAY=500ms
+```
+
+## Processor scaling
+
+Current autoscaling posture is manual.
+
+Operational guidance:
+
+- use `logagg_queue_consumer_pending` as the primary lag signal
+- use `logagg_processor_batches_total` and `logagg_processor_logs_total` to understand drain rate
+- if lag grows continuously and ClickHouse/Postgres remain healthy, increase processor replicas or allocated CPU
+- if lag is near zero and processor utilization is low for an extended period, scale back down
+
+Initial manual policy:
+
+- scale up when `logagg_queue_consumer_pending` remains above the chosen watermark for several minutes
+- scale down only after lag returns near zero and stays there
+- keep backpressure enabled so ingest does not outrun recovery indefinitely
 
 ## Documentation
 
