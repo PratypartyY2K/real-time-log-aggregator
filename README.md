@@ -182,6 +182,13 @@ Each service has sane local defaults for the Docker Compose environment; see `in
 
 Runtime services expose Prometheus-compatible metrics on `/metrics`. `ingest-api` and `query-api` serve metrics on their main HTTP port. `processor` serves metrics on `METRICS_ADDR`, which defaults to `:9092`.
 
+The local Grafana container on `http://localhost:3000` is provisioned automatically with the Prometheus datasource and these dashboards:
+
+- `Ingest Throughput`
+- `Queue Lag`
+- `Processor Failures`
+- `Alert Volume`
+
 Queue lag metrics are exposed from both `ingest-api` and `processor`:
 
 - `logagg_queue_monitor_up`
