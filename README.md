@@ -192,6 +192,8 @@ Queue lag metrics are exposed from both `ingest-api` and `processor`:
 - `logagg_queue_consumer_waiting`
 - `logagg_queue_consumer_redelivered`
 
+Alert evaluation volume is exposed from `processor` as `logagg_alert_state_changes_total`, labeled by `event_type` (`triggered`, `suppressed`, `resolved`) and `status`.
+
 Before `ingest-api` can authorize requests, Postgres must contain at least one active API key row and a matching service record. The `api_keys.key_hash` column stores a SHA-256 hex digest of the plaintext key.
 
 ## JetStream contract

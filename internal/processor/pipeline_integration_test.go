@@ -83,7 +83,7 @@ func TestIngestQueueProcessorFlow(t *testing.T) {
 		},
 	}
 
-	if err := handleBatch(ctx, logger, writer, ruleStore, &stubNotificationDispatcher{}, queuedEvent); err != nil {
+	if err := handleBatch(ctx, logger, writer, ruleStore, &stubNotificationDispatcher{}, nil, queuedEvent); err != nil {
 		t.Fatalf("expected processor to accept queued event, got %v", err)
 	}
 	if writer.writeCalls != 1 {
@@ -112,7 +112,7 @@ func TestIngestQueueProcessorFlow(t *testing.T) {
 	}
 
 	writer.markProcessed(queuedEvent.RequestID)
-	if err := handleBatch(ctx, logger, writer, ruleStore, &stubNotificationDispatcher{}, queuedEvent); err != nil {
+	if err := handleBatch(ctx, logger, writer, ruleStore, &stubNotificationDispatcher{}, nil, queuedEvent); err != nil {
 		t.Fatalf("expected duplicate queued event to be skipped, got %v", err)
 	}
 	if writer.writeCalls != 1 {

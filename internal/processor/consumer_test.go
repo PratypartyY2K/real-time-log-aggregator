@@ -40,7 +40,7 @@ func TestHandleBatchAcceptsPublishedBatch(t *testing.T) {
 		},
 	}
 
-	if err := handleBatch(context.Background(), logger, writer, ruleStore, &stubNotificationDispatcher{}, batch); err != nil {
+	if err := handleBatch(context.Background(), logger, writer, ruleStore, &stubNotificationDispatcher{}, nil, batch); err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
 	if logger.infoCalls != 1 {
@@ -67,7 +67,7 @@ func TestHandleBatchRejectsMissingRequestID(t *testing.T) {
 	logger := &stubLogger{}
 	writer := &stubLogWriter{}
 
-	err := handleBatch(context.Background(), logger, writer, nil, &stubNotificationDispatcher{}, contracts.LogsRawEvent{})
+	err := handleBatch(context.Background(), logger, writer, nil, &stubNotificationDispatcher{}, nil, contracts.LogsRawEvent{})
 	if err == nil {
 		t.Fatal("expected error for missing request id")
 	}
@@ -100,7 +100,7 @@ func TestHandleBatchReturnsWriterError(t *testing.T) {
 		},
 	}
 
-	err := handleBatch(context.Background(), logger, writer, nil, &stubNotificationDispatcher{}, batch)
+	err := handleBatch(context.Background(), logger, writer, nil, &stubNotificationDispatcher{}, nil, batch)
 	if err == nil || !strings.Contains(err.Error(), "persist normalized logs") {
 		t.Fatalf("expected persist error, got %v", err)
 	}
@@ -131,7 +131,7 @@ func TestHandleBatchReturnsAlertRuleLoadError(t *testing.T) {
 		},
 	}
 
-	err := handleBatch(context.Background(), logger, writer, ruleStore, &stubNotificationDispatcher{}, batch)
+	err := handleBatch(context.Background(), logger, writer, ruleStore, &stubNotificationDispatcher{}, nil, batch)
 	if err == nil || !strings.Contains(err.Error(), "load alert rules") {
 		t.Fatalf("expected alert rule load error, got %v", err)
 	}
@@ -176,7 +176,7 @@ func TestHandleBatchEvaluatesCountThresholdRule(t *testing.T) {
 		},
 	}
 
-	if err := handleBatch(context.Background(), logger, writer, ruleStore, &stubNotificationDispatcher{}, batch); err != nil {
+	if err := handleBatch(context.Background(), logger, writer, ruleStore, &stubNotificationDispatcher{}, nil, batch); err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
 	if logger.infoCalls != 2 {
@@ -220,7 +220,7 @@ func TestHandleBatchReturnsAlertStateSyncError(t *testing.T) {
 		},
 	}
 
-	err := handleBatch(context.Background(), logger, writer, ruleStore, &stubNotificationDispatcher{}, batch)
+	err := handleBatch(context.Background(), logger, writer, ruleStore, &stubNotificationDispatcher{}, nil, batch)
 	if err == nil || !strings.Contains(err.Error(), "sync alert state") {
 		t.Fatalf("expected alert state sync error, got %v", err)
 	}
@@ -256,7 +256,7 @@ func TestHandleBatchReturnsNotificationDispatchError(t *testing.T) {
 		},
 	}
 
-	err := handleBatch(context.Background(), logger, writer, ruleStore, &stubNotificationDispatcher{}, batch)
+	err := handleBatch(context.Background(), logger, writer, ruleStore, &stubNotificationDispatcher{}, nil, batch)
 	if err == nil || !strings.Contains(err.Error(), "dispatch notifications") {
 		t.Fatalf("expected notification dispatch error, got %v", err)
 	}
@@ -451,7 +451,7 @@ func TestHandleBatchSkipsAlreadyProcessedBatch(t *testing.T) {
 		},
 	}
 
-	if err := handleBatch(context.Background(), logger, writer, nil, &stubNotificationDispatcher{}, batch); err != nil {
+	if err := handleBatch(context.Background(), logger, writer, nil, &stubNotificationDispatcher{}, nil, batch); err != nil {
 		t.Fatalf("expected replayed batch to be skipped cleanly, got %v", err)
 	}
 	if writer.alreadyProcessedChecks != 1 {

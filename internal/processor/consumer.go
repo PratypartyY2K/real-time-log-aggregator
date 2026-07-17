@@ -14,7 +14,7 @@ import (
 	"github.com/PratypartyY2K/real-time-log-aggregator/internal/stream"
 )
 
-func Run(ctx context.Context, logger app.Logger, cfg config.Config, metrics *Metrics, ruleStore AlertRuleStore) error {
+func Run(ctx context.Context, logger app.Logger, cfg config.Config, metrics *Metrics, alertMetrics AlertMetrics, ruleStore AlertRuleStore) error {
 	nc, consumer, err := stream.ConnectJetStreamConsumer(stream.ConsumerOptions{
 		URL:        cfg.NATSURL,
 		StreamName: cfg.NATSStream,
@@ -38,7 +38,7 @@ func Run(ctx context.Context, logger app.Logger, cfg config.Config, metrics *Met
 
 	return consumer.Consume(ctx, func(ctx context.Context, batch contracts.LogsRawEvent) error {
 		start := time.Now()
-		err := handleBatch(ctx, logger, writer, ruleStore, dispatcher, batch)
+		err := handleBatch(ctx, logger, writer, ruleStore, dispatcher, alertMetrics, batch)
 		result := resultSuccess
 		if err != nil {
 			result = resultRetryable
@@ -59,7 +59,11 @@ type AlertRuleStore interface {
 	DispatchDueNotifications(context.Context, alerts.NotificationDispatcher, time.Time) error
 }
 
-func handleBatch(ctx context.Context, logger app.Logger, writer LogWriter, ruleStore AlertRuleStore, dispatcher alerts.NotificationDispatcher, batch contracts.LogsRawEvent) error {
+type AlertMetrics interface {
+	ObserveStateChanges([]alerts.StateChange)
+}
+
+func handleBatch(ctx context.Context, logger app.Logger, writer LogWriter, ruleStore AlertRuleStore, dispatcher alerts.NotificationDispatcher, alertMetrics AlertMetrics, batch contracts.LogsRawEvent) error {
 	if err := batch.Validate(); err != nil {
 		return stream.MarkPoisonBatch(fmt.Errorf("invalid logs.raw event: %w", err))
 	}
@@ -98,6 +102,9 @@ func handleBatch(ctx context.Context, logger app.Logger, writer LogWriter, ruleS
 	stateChanges, err := syncAlertState(ctx, ruleStore, rules, triggers, alertObservedAt(batch, normalized))
 	if err != nil {
 		return fmt.Errorf("sync alert state: %w", err)
+	}
+	if alertMetrics != nil {
+		alertMetrics.ObserveStateChanges(stateChanges)
 	}
 	if err := dispatchDueNotifications(ctx, ruleStore, dispatcher, alertObservedAt(batch, normalized)); err != nil {
 		return fmt.Errorf("dispatch notifications: %w", err)

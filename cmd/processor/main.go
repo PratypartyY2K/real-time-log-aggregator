@@ -28,11 +28,12 @@ func main() {
 		log.Fatal(err)
 	}
 	processorMetrics := processor.NewMetrics(cfg.ServiceName)
+	alertMetrics := alerts.NewMetricsCollector(cfg.ServiceName)
 	writer := processor.NewClickHouseWriter(cfg.ClickHouseDSN)
 	ruleStore := alerts.NewPostgresStore(db)
 	queueMonitor := stream.NewQueueMonitor(cfg.NATSURL, cfg.NATSStream, cfg.NATSDurable)
 	probeMux := http.NewServeMux()
-	probeMux.Handle("/metrics", metrics.NewHandler(cfg.ServiceName, processorMetrics, stream.NewQueueLagCollector(cfg.ServiceName, queueMonitor)))
+	probeMux.Handle("/metrics", metrics.NewHandler(cfg.ServiceName, processorMetrics, alertMetrics, stream.NewQueueLagCollector(cfg.ServiceName, queueMonitor)))
 	probeMux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
@@ -45,7 +46,7 @@ func main() {
 		readiness.Func("clickhouse", writer.Check),
 	))
 	service := worker.New(cfg, func(ctx context.Context, logger app.Logger) error {
-		return processor.Run(ctx, logger, cfg, processorMetrics, ruleStore)
+		return processor.Run(ctx, logger, cfg, processorMetrics, alertMetrics, ruleStore)
 	}, worker.WithMetricsHandler(probeMux))
 	app.Run(service)
 }
