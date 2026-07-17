@@ -35,6 +35,8 @@ docs/                   architecture and milestone notes
 
 The local setup uses Docker Compose for infrastructure only. `ingest-api`, `processor`, `query-api`, and helper commands run on the host with `go run`.
 
+Kubernetes manifests are intentionally deferred until the local Docker Compose and host-run flow is stable end to end.
+
 ## Docker bootstrap
 
 1. Start local infrastructure:
