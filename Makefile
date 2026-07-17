@@ -1,6 +1,7 @@
 GO ?= go
+GOFMT ?= gofmt
 
-.PHONY: build migrate-postgres run-ingest run-query run-processor fmt test
+.PHONY: build migrate-postgres run-ingest run-query run-processor fmt fmt-check test integration-test ci
 
 build:
 	$(GO) build ./...
@@ -20,5 +21,22 @@ run-processor:
 fmt:
 	$(GO) fmt ./...
 
+fmt-check:
+	@unformatted="$$(find . \
+		-path './.git' -prune -o \
+		-path './.gomodcache' -prune -o \
+		-path './vendor' -prune -o \
+		-name '*.go' -print0 | xargs -0 $(GOFMT) -l)"; \
+	if [ -n "$$unformatted" ]; then \
+		echo "Unformatted Go files:"; \
+		echo "$$unformatted"; \
+		exit 1; \
+	fi
+
 test:
 	$(GO) test ./...
+
+integration-test:
+	$(GO) test -tags=integration ./internal/processor -run TestIngestQueueProcessorFlow -count=1
+
+ci: fmt-check test build integration-test
