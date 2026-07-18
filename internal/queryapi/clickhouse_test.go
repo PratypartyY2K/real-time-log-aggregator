@@ -79,6 +79,67 @@ func TestClickHouseStoreReturnsServerError(t *testing.T) {
 	}
 }
 
+func TestClickHouseStoreQueriesAnalytics(t *testing.T) {
+	var requestBody string
+	store := &ClickHouseStore{
+		url: "http://clickhouse.local",
+		client: &http.Client{
+			Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+				payload, err := io.ReadAll(r.Body)
+				if err != nil {
+					t.Fatalf("read request body: %v", err)
+				}
+				requestBody = string(payload)
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Status:     "200 OK",
+					Header:     make(http.Header),
+					Body:       io.NopCloser(strings.NewReader(`{"data":[{"bucket":"2026-07-13T18:00:00Z","group_service":"checkout","group_error_code":"db_timeout","value":12}]}`)),
+				}, nil
+			}),
+		},
+	}
+
+	results, err := store.QueryAnalytics(context.Background(), AnalyticsQuery{
+		Start:       time.Date(2026, 7, 13, 17, 0, 0, 0, time.UTC),
+		End:         time.Date(2026, 7, 13, 19, 0, 0, 0, time.UTC),
+		Aggregation: "count",
+		GroupBy:     []string{"service", "error_code"},
+		Bucket:      "minute",
+	})
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if !strings.Contains(requestBody, "GROUP BY toStartOfMinute(timestamp), service, JSONExtractString(fields_json, 'error_code')") {
+		t.Fatalf("expected grouped analytics query, got %q", requestBody)
+	}
+	if !strings.Contains(requestBody, "formatDateTime(toStartOfMinute(timestamp)") {
+		t.Fatalf("expected bucket selection in query, got %q", requestBody)
+	}
+	if len(results) != 1 || results[0].Group["service"] != "checkout" || results[0].Group["error_code"] != "db_timeout" {
+		t.Fatalf("unexpected analytics result: %+v", results)
+	}
+}
+
+func TestClickHouseStoreBuildsTopKPercentileQuery(t *testing.T) {
+	query := buildAnalyticsQuery(AnalyticsQuery{
+		Start:       time.Date(2026, 7, 13, 17, 0, 0, 0, time.UTC),
+		End:         time.Date(2026, 7, 13, 19, 0, 0, 0, time.UTC),
+		Aggregation: "percentile",
+		Percentile:  95,
+		ValueField:  "field.duration_ms",
+		GroupBy:     []string{"service"},
+		TopK:        5,
+	})
+
+	if !strings.Contains(query, "quantileTDigest(0.95)(toFloat64OrNull(JSONExtractString(fields_json, 'duration_ms')))) AS value") {
+		t.Fatalf("expected percentile expression, got %q", query)
+	}
+	if !strings.Contains(query, "ORDER BY value DESC LIMIT 5") {
+		t.Fatalf("expected top-k ordering, got %q", query)
+	}
+}
+
 type roundTripperFunc func(*http.Request) (*http.Response, error)
 
 func (fn roundTripperFunc) RoundTrip(req *http.Request) (*http.Response, error) {

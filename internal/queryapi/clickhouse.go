@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -20,6 +21,10 @@ type ClickHouseStore struct {
 
 type clickHouseQueryResponse struct {
 	Data []clickHouseQueryRow `json:"data"`
+}
+
+type clickHouseAnalyticsQueryResponse struct {
+	Data []map[string]json.RawMessage `json:"data"`
 }
 
 type clickHouseQueryRow struct {
@@ -96,6 +101,48 @@ func (s *ClickHouseStore) QueryLogs(ctx context.Context, filter QueryFilter) ([]
 	return logs, nil
 }
 
+func (s *ClickHouseStore) QueryAnalytics(ctx context.Context, query AnalyticsQuery) ([]AnalyticsPoint, error) {
+	if s == nil || s.url == "" {
+		return nil, fmt.Errorf("clickhouse store is not configured")
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.url, strings.NewReader(buildAnalyticsQuery(query)))
+	if err != nil {
+		return nil, fmt.Errorf("build clickhouse analytics request: %w", err)
+	}
+	req.Header.Set("Content-Type", "text/plain; charset=utf-8")
+
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("query clickhouse analytics: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= http.StatusBadRequest {
+		payload, readErr := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		if readErr != nil {
+			return nil, fmt.Errorf("clickhouse analytics query failed with status %s", resp.Status)
+		}
+		return nil, fmt.Errorf("clickhouse analytics query failed with status %s: %s", resp.Status, strings.TrimSpace(string(payload)))
+	}
+
+	var result clickHouseAnalyticsQueryResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("decode clickhouse analytics response: %w", err)
+	}
+
+	points := make([]AnalyticsPoint, 0, len(result.Data))
+	for _, row := range result.Data {
+		point, err := toAnalyticsPoint(row)
+		if err != nil {
+			return nil, err
+		}
+		points = append(points, point)
+	}
+
+	return points, nil
+}
+
 func buildLogsQuery(filter QueryFilter) string {
 	var query bytes.Buffer
 	query.WriteString("SELECT ")
@@ -121,6 +168,143 @@ func buildLogsQuery(filter QueryFilter) string {
 	query.WriteString(fmt.Sprintf("LIMIT %d ", filter.Limit))
 	query.WriteString("FORMAT JSON")
 	return query.String()
+}
+
+func buildAnalyticsQuery(query AnalyticsQuery) string {
+	var builder strings.Builder
+
+	selectExprs := make([]string, 0, len(query.GroupBy)+2)
+	groupExprs := make([]string, 0, len(query.GroupBy)+1)
+	orderExprs := make([]string, 0, len(query.GroupBy)+1)
+
+	if bucketExpr := analyticsBucketExpr(query.Bucket); bucketExpr != "" {
+		selectExprs = append(selectExprs, "formatDateTime("+bucketExpr+", '%Y-%m-%dT%H:%i:%SZ', 'UTC') AS bucket")
+		groupExprs = append(groupExprs, bucketExpr)
+		orderExprs = append(orderExprs, "bucket DESC")
+	}
+
+	for _, field := range query.GroupBy {
+		expr, alias := analyticsGroupExpr(field)
+		selectExprs = append(selectExprs, expr+" AS "+alias)
+		groupExprs = append(groupExprs, expr)
+		orderExprs = append(orderExprs, alias+" ASC")
+	}
+
+	selectExprs = append(selectExprs, analyticsValueExpr(query)+" AS value")
+
+	builder.WriteString("SELECT ")
+	builder.WriteString(strings.Join(selectExprs, ", "))
+	builder.WriteString(" FROM logs WHERE timestamp >= toDateTime64(")
+	builder.WriteString(quoteLiteral(query.Start.UTC().Format(time.RFC3339Nano)))
+	builder.WriteString(", 3, 'UTC') AND timestamp < toDateTime64(")
+	builder.WriteString(quoteLiteral(query.End.UTC().Format(time.RFC3339Nano)))
+	builder.WriteString(", 3, 'UTC') ")
+
+	if query.Service != "" {
+		builder.WriteString("AND service = ")
+		builder.WriteString(quoteLiteral(query.Service))
+		builder.WriteByte(' ')
+	}
+	if query.Environment != "" {
+		builder.WriteString("AND environment = ")
+		builder.WriteString(quoteLiteral(query.Environment))
+		builder.WriteByte(' ')
+	}
+	if query.Level != "" {
+		builder.WriteString("AND level = ")
+		builder.WriteString(quoteLiteral(query.Level))
+		builder.WriteByte(' ')
+	}
+	if query.ErrorCode != "" {
+		builder.WriteString("AND JSONExtractString(fields_json, 'error_code') = ")
+		builder.WriteString(quoteLiteral(query.ErrorCode))
+		builder.WriteByte(' ')
+	}
+
+	if len(groupExprs) > 0 {
+		builder.WriteString("GROUP BY ")
+		builder.WriteString(strings.Join(groupExprs, ", "))
+		builder.WriteByte(' ')
+	}
+
+	if query.TopK > 0 {
+		builder.WriteString("ORDER BY value DESC")
+	} else if len(orderExprs) > 0 {
+		builder.WriteString("ORDER BY ")
+		builder.WriteString(strings.Join(orderExprs, ", "))
+	} else {
+		builder.WriteString("ORDER BY value DESC")
+	}
+	builder.WriteByte(' ')
+
+	if query.TopK > 0 {
+		builder.WriteString(fmt.Sprintf("LIMIT %d ", query.TopK))
+	}
+
+	builder.WriteString("FORMAT JSON")
+	return builder.String()
+}
+
+func analyticsBucketExpr(bucket string) string {
+	switch bucket {
+	case "minute":
+		return "toStartOfMinute(timestamp)"
+	case "hour":
+		return "toStartOfHour(timestamp)"
+	case "day":
+		return "toStartOfDay(timestamp)"
+	default:
+		return ""
+	}
+}
+
+func analyticsGroupExpr(field string) (expr, alias string) {
+	switch field {
+	case "service":
+		return "service", "group_service"
+	case "env":
+		return "environment", "group_env"
+	case "level":
+		return "level", "group_level"
+	case "error_code":
+		return "JSONExtractString(fields_json, 'error_code')", "group_error_code"
+	default:
+		return "", ""
+	}
+}
+
+func analyticsValueExpr(query AnalyticsQuery) string {
+	switch query.Aggregation {
+	case "count":
+		return "toFloat64(count())"
+	case "rate":
+		return fmt.Sprintf("toFloat64(count()) / %d", analyticsBucketSeconds(query.Bucket))
+	case "percentile":
+		return fmt.Sprintf("toFloat64(quantileTDigest(%s)(%s))", strconv.FormatFloat(query.Percentile/100, 'f', -1, 64), analyticsValueFieldExpr(query.ValueField))
+	default:
+		return "toFloat64(count())"
+	}
+}
+
+func analyticsBucketSeconds(bucket string) int {
+	switch bucket {
+	case "minute":
+		return 60
+	case "hour":
+		return 3600
+	case "day":
+		return 86400
+	default:
+		return 1
+	}
+}
+
+func analyticsValueFieldExpr(valueField string) string {
+	if valueField == "raw_size_bytes" {
+		return "toFloat64(raw_size_bytes)"
+	}
+	fieldName := strings.TrimPrefix(valueField, "field.")
+	return "toFloat64OrNull(JSONExtractString(fields_json, " + quoteLiteral(fieldName) + "))"
 }
 
 func toLogRecord(row clickHouseQueryRow) (LogRecord, error) {
@@ -151,6 +335,41 @@ func toLogRecord(row clickHouseQueryRow) (LogRecord, error) {
 		IngestID:     row.IngestID,
 		RawSizeBytes: row.RawSizeBytes,
 	}, nil
+}
+
+func toAnalyticsPoint(row map[string]json.RawMessage) (AnalyticsPoint, error) {
+	point := AnalyticsPoint{
+		Group: map[string]string{},
+	}
+
+	if rawBucket, ok := row["bucket"]; ok {
+		if err := json.Unmarshal(rawBucket, &point.Bucket); err != nil {
+			return AnalyticsPoint{}, fmt.Errorf("decode analytics bucket: %w", err)
+		}
+	}
+
+	for key, raw := range row {
+		if !strings.HasPrefix(key, "group_") {
+			continue
+		}
+		var value string
+		if err := json.Unmarshal(raw, &value); err != nil {
+			return AnalyticsPoint{}, fmt.Errorf("decode analytics group value: %w", err)
+		}
+		point.Group[strings.TrimPrefix(key, "group_")] = value
+	}
+
+	if len(point.Group) == 0 {
+		point.Group = nil
+	}
+
+	if rawValue, ok := row["value"]; ok {
+		if err := json.Unmarshal(rawValue, &point.Value); err != nil {
+			return AnalyticsPoint{}, fmt.Errorf("decode analytics value: %w", err)
+		}
+	}
+
+	return point, nil
 }
 
 func quoteLiteral(value string) string {

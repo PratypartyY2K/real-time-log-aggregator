@@ -21,6 +21,7 @@ func main() {
 
 type readyStore interface {
 	queryapi.LogStore
+	queryapi.AnalyticsStore
 	Check(context.Context) error
 }
 
@@ -46,6 +47,7 @@ func routes(serviceName string, store readyStore) http.Handler {
 			"status":  "bootstrap",
 		})
 	})))
+	mux.Handle("/v1/analytics", httpMetrics.Middleware("/v1/analytics", queryapi.NewAnalyticsHandler(store)))
 	mux.Handle("/v1/logs", httpMetrics.Middleware("/v1/logs", queryapi.NewHandler(store)))
 	return mux
 }

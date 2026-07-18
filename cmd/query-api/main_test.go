@@ -34,6 +34,26 @@ func TestRoutesExposeQueryEndpoint(t *testing.T) {
 	}
 }
 
+func TestRoutesExposeAnalyticsEndpoint(t *testing.T) {
+	handler := routes("query-api", &stubLogStore{
+		analytics: []queryapi.AnalyticsPoint{
+			{
+				Bucket: "2026-07-13T18:00:00Z",
+				Group:  map[string]string{"service": "checkout"},
+				Value:  9,
+			},
+		},
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/analytics?start=2026-07-13T17:00:00Z&end=2026-07-13T19:00:00Z&aggregation=count&group_by=service&bucket=hour", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestRoutesExposePrometheusMetrics(t *testing.T) {
 	handler := routes("query-api", &stubLogStore{})
 
@@ -72,12 +92,17 @@ func TestRoutesExposeReadiness(t *testing.T) {
 }
 
 type stubLogStore struct {
-	logs []queryapi.LogRecord
-	err  error
+	logs      []queryapi.LogRecord
+	analytics []queryapi.AnalyticsPoint
+	err       error
 }
 
 func (s *stubLogStore) QueryLogs(context.Context, queryapi.QueryFilter) ([]queryapi.LogRecord, error) {
 	return s.logs, s.err
+}
+
+func (s *stubLogStore) QueryAnalytics(context.Context, queryapi.AnalyticsQuery) ([]queryapi.AnalyticsPoint, error) {
+	return s.analytics, s.err
 }
 
 func (s *stubLogStore) Check(context.Context) error {
