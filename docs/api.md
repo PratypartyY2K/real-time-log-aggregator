@@ -158,6 +158,71 @@ Validation rules:
 - `service` and `level` accept only safe tag characters
 - `limit` must be a positive integer and is capped at `1000`
 
+## `GET /v1/analytics`
+
+Current behavior:
+
+- queries aggregated views over normalized logs from ClickHouse
+- requires `start` and `end` RFC3339 timestamps
+- requires `aggregation`, one of `count`, `rate`, or `percentile`
+- supports exact-match filters for `service`, `env`, `level`, and `error_code`
+- supports `group_by` over `service`, `env`, `level`, and `error_code`
+- supports time bucketing with `bucket=minute|hour|day`
+- supports `top_k` for grouped leaderboard-style queries without bucketing
+- requires `percentile` and `value_field` when `aggregation=percentile`
+
+Example request:
+
+```text
+/v1/analytics?start=2026-07-13T17:00:00Z&end=2026-07-13T19:00:00Z&aggregation=count&group_by=service,level&bucket=minute
+```
+
+Top-K example:
+
+```text
+/v1/analytics?start=2026-07-13T17:00:00Z&end=2026-07-13T19:00:00Z&aggregation=count&group_by=error_code&top_k=5
+```
+
+Percentile example:
+
+```text
+/v1/analytics?start=2026-07-13T17:00:00Z&end=2026-07-13T19:00:00Z&aggregation=percentile&percentile=95&value_field=field.duration_ms&group_by=service
+```
+
+Example response:
+
+```json
+{
+  "aggregation": "count",
+  "bucket": "minute",
+  "group_by": ["service", "level"],
+  "results": [
+    {
+      "bucket": "2026-07-13T18:00:00Z",
+      "group": {
+        "service": "checkout",
+        "level": "error"
+      },
+      "value": 12
+    }
+  ],
+  "count": 1
+}
+```
+
+Validation rules:
+
+- `start` is required
+- `end` is required
+- `start` must be before `end`
+- `aggregation` must be `count`, `rate`, or `percentile`
+- `group_by` is restricted to `service`, `env`, `level`, and `error_code`
+- `bucket`, when set, must be `minute`, `hour`, or `day`
+- `rate` requires a `bucket`
+- `top_k` requires at least one `group_by` field and does not support time bucketing
+- `percentile` requires `percentile` between `0` and `100`
+- `value_field` must be `raw_size_bytes` or `field.<name>`
+
 ## Schema evolution
 
 Current strategy:
