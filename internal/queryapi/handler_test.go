@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -27,7 +28,7 @@ func TestHandlerReturnsLogsForValidFilter(t *testing.T) {
 			},
 		},
 	}
-	req := httptest.NewRequest(http.MethodGet, "/v1/logs?start=2026-07-13T17:00:00Z&end=2026-07-13T19:00:00Z&service=checkout&level=error&limit=50", nil)
+	req := httptest.NewRequest(http.MethodGet, "/v1/logs?start=2026-07-13T17:00:00Z&end=2026-07-13T19:00:00Z&service=checkout&level=error&page_size=50&offset=25", nil)
 	rec := httptest.NewRecorder()
 
 	NewHandler(store).ServeHTTP(rec, req)
@@ -35,7 +36,7 @@ func TestHandlerReturnsLogsForValidFilter(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
-	if store.filter.Service != "checkout" || store.filter.Level != "error" || store.filter.Limit != 50 {
+	if store.filter.Service != "checkout" || store.filter.Level != "error" || store.filter.Limit != 50 || store.filter.Offset != 25 {
 		t.Fatalf("unexpected filter passed to store: %+v", store.filter)
 	}
 
@@ -45,6 +46,50 @@ func TestHandlerReturnsLogsForValidFilter(t *testing.T) {
 	}
 	if payload.Count != 1 || len(payload.Logs) != 1 {
 		t.Fatalf("expected one log in payload, got %+v", payload)
+	}
+}
+
+func TestHandlerReturnsNextOffsetWhenPageIsFull(t *testing.T) {
+	store := &stubLogStore{
+		logs: []LogRecord{
+			{Timestamp: time.Date(2026, 7, 13, 18, 0, 0, 0, time.UTC)},
+			{Timestamp: time.Date(2026, 7, 13, 18, 1, 0, 0, time.UTC)},
+		},
+	}
+	req := httptest.NewRequest(http.MethodGet, "/v1/logs?start=2026-07-13T17:00:00Z&end=2026-07-13T19:00:00Z&page_size=2&offset=4", nil)
+	rec := httptest.NewRecorder()
+
+	NewHandler(store).ServeHTTP(rec, req)
+
+	var payload queryResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if payload.NextOffset == nil || *payload.NextOffset != 6 {
+		t.Fatalf("expected next offset 6, got %+v", payload.NextOffset)
+	}
+}
+
+func TestHandlerStreamsLogsAsNDJSON(t *testing.T) {
+	store := &stubLogStore{
+		logs: []LogRecord{
+			{Timestamp: time.Date(2026, 7, 13, 18, 0, 0, 0, time.UTC), Service: "checkout"},
+			{Timestamp: time.Date(2026, 7, 13, 18, 1, 0, 0, time.UTC), Service: "billing"},
+		},
+	}
+	req := httptest.NewRequest(http.MethodGet, "/v1/logs?start=2026-07-13T17:00:00Z&end=2026-07-13T19:00:00Z&stream=true&page_size=2", nil)
+	rec := httptest.NewRecorder()
+
+	NewHandler(store).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if got := rec.Header().Get("Content-Type"); got != "application/x-ndjson" {
+		t.Fatalf("unexpected content type: %s", got)
+	}
+	if lines := strings.Count(strings.TrimSpace(rec.Body.String()), "\n") + 1; lines != 2 {
+		t.Fatalf("expected two streamed lines, got body %q", rec.Body.String())
 	}
 }
 
@@ -61,6 +106,17 @@ func TestHandlerRejectsMissingTimeRange(t *testing.T) {
 
 func TestHandlerRejectsUnsafeFilter(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/v1/logs?start=2026-07-13T17:00:00Z&end=2026-07-13T19:00:00Z&service=checkout%2Fapi", nil)
+	rec := httptest.NewRecorder()
+
+	NewHandler(&stubLogStore{}).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", rec.Code)
+	}
+}
+
+func TestHandlerRejectsExpensiveRawQueryWindow(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/v1/logs?start=2026-07-01T00:00:00Z&end=2026-07-13T00:00:00Z", nil)
 	rec := httptest.NewRecorder()
 
 	NewHandler(&stubLogStore{}).ServeHTTP(rec, req)
@@ -90,4 +146,17 @@ type stubLogStore struct {
 func (s *stubLogStore) QueryLogs(_ context.Context, filter QueryFilter) ([]LogRecord, error) {
 	s.filter = filter
 	return s.logs, s.err
+}
+
+func (s *stubLogStore) StreamLogs(_ context.Context, filter QueryFilter, emit func(LogRecord) error) error {
+	s.filter = filter
+	if s.err != nil {
+		return s.err
+	}
+	for _, record := range s.logs {
+		if err := emit(record); err != nil {
+			return err
+		}
+	}
+	return nil
 }

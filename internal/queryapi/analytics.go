@@ -10,7 +10,12 @@ import (
 	"time"
 )
 
-const maxTopK = 100
+const (
+	maxTopK              = 100
+	maxAnalyticsWindow   = 31 * 24 * time.Hour
+	maxAnalyticsBuckets  = 5000
+	maxAnalyticsGroupBys = 3
+)
 
 type AnalyticsStore interface {
 	QueryAnalytics(context.Context, AnalyticsQuery) ([]AnalyticsPoint, error)
@@ -33,6 +38,7 @@ type AnalyticsQuery struct {
 	TopK        int
 	Percentile  float64
 	ValueField  string
+	Limit       int
 }
 
 type AnalyticsPoint struct {
@@ -48,6 +54,7 @@ type analyticsResponse struct {
 	TopK        int              `json:"top_k,omitempty"`
 	Percentile  float64          `json:"percentile,omitempty"`
 	ValueField  string           `json:"value_field,omitempty"`
+	Limit       int              `json:"limit,omitempty"`
 	Results     []AnalyticsPoint `json:"results"`
 	Count       int              `json:"count"`
 }
@@ -87,6 +94,7 @@ func (h *AnalyticsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		TopK:        query.TopK,
 		Percentile:  query.Percentile,
 		ValueField:  query.ValueField,
+		Limit:       query.Limit,
 		Results:     results,
 		Count:       len(results),
 	})
@@ -105,6 +113,9 @@ func parseAnalyticsQuery(r *http.Request) (AnalyticsQuery, error) {
 	}
 	if !start.Before(end) {
 		return AnalyticsQuery{}, errors.New("start must be before end")
+	}
+	if end.Sub(start) > maxAnalyticsWindow {
+		return AnalyticsQuery{}, errors.New("time range cannot exceed 31 days")
 	}
 
 	aggregation := strings.ToLower(strings.TrimSpace(query.Get("aggregation")))
@@ -135,12 +146,18 @@ func parseAnalyticsQuery(r *http.Request) (AnalyticsQuery, error) {
 	if err != nil {
 		return AnalyticsQuery{}, err
 	}
+	if len(groupBy) > maxAnalyticsGroupBys {
+		return AnalyticsQuery{}, errors.New("group_by cannot contain more than 3 fields")
+	}
 
 	bucket := strings.ToLower(strings.TrimSpace(query.Get("bucket")))
 	switch bucket {
 	case "", "minute", "hour", "day":
 	default:
 		return AnalyticsQuery{}, errors.New("bucket must be one of minute, hour, or day")
+	}
+	if bucket != "" && estimatedBucketCount(start, end, bucket) > maxAnalyticsBuckets {
+		return AnalyticsQuery{}, errors.New("bucketed query would produce too many time buckets")
 	}
 
 	topK := 0
@@ -159,6 +176,17 @@ func parseAnalyticsQuery(r *http.Request) (AnalyticsQuery, error) {
 		if bucket != "" {
 			return AnalyticsQuery{}, errors.New("top_k does not support time bucketing")
 		}
+	}
+
+	limit := defaultLimit
+	if topK > 0 {
+		limit = topK
+	} else {
+		parsed, err := parseBoundedPositiveInt(query.Get("limit"), defaultLimit, maxLimit, "limit")
+		if err != nil {
+			return AnalyticsQuery{}, err
+		}
+		limit = parsed
 	}
 
 	percentile := 0.0
@@ -196,6 +224,7 @@ func parseAnalyticsQuery(r *http.Request) (AnalyticsQuery, error) {
 		TopK:        topK,
 		Percentile:  percentile,
 		ValueField:  valueField,
+		Limit:       limit,
 	}, nil
 }
 
@@ -243,4 +272,19 @@ func isAllowedValueField(value string) bool {
 		return isSafeTagFilter(strings.TrimPrefix(value, "field."))
 	}
 	return false
+}
+
+func estimatedBucketCount(start, end time.Time, bucket string) int {
+	var size time.Duration
+	switch bucket {
+	case "minute":
+		size = time.Minute
+	case "hour":
+		size = time.Hour
+	case "day":
+		size = 24 * time.Hour
+	default:
+		return 0
+	}
+	return int(end.Sub(start)/size) + 1
 }

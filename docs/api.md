@@ -113,7 +113,9 @@ Current behavior:
 - queries normalized logs from ClickHouse
 - requires `start` and `end` RFC3339 timestamps
 - supports optional exact-match `service` and `level` filters
-- supports optional `limit`, default `100`, max `1000`
+- supports optional `limit` or `page_size`, default `100`, max `1000`
+- supports optional `offset`, max `10000`
+- supports `stream=true` for newline-delimited JSON streaming
 - returns logs ordered by newest `timestamp` first
 - returns normalized records including `tenant_id`, `environment`, `source`, `host`, `trace_id`, `fingerprint`, `ingest_id`, and `raw_size_bytes`
 
@@ -155,8 +157,18 @@ Validation rules:
 - `start` is required
 - `end` is required
 - `start` must be before `end`
+- the requested time range cannot exceed `7` days
 - `service` and `level` accept only safe tag characters
-- `limit` must be a positive integer and is capped at `1000`
+- `limit` and `page_size` must be positive integers and are capped at `1000`
+- `offset` must be a non-negative integer and cannot exceed `10000`
+
+Streaming response:
+
+```text
+/v1/logs?start=2026-07-13T17:00:00Z&end=2026-07-13T19:00:00Z&stream=true&page_size=1000
+```
+
+When `stream=true`, the response content type is `application/x-ndjson` and each line is one normalized log record.
 
 ## `GET /v1/analytics`
 
@@ -170,6 +182,7 @@ Current behavior:
 - supports time bucketing with `bucket=minute|hour|day`
 - supports `top_k` for grouped leaderboard-style queries without bucketing
 - requires `percentile` and `value_field` when `aggregation=percentile`
+- supports optional `limit`, default `100`, max `1000`
 
 Example request:
 
@@ -215,9 +228,12 @@ Validation rules:
 - `start` is required
 - `end` is required
 - `start` must be before `end`
+- the requested time range cannot exceed `31` days
 - `aggregation` must be `count`, `rate`, or `percentile`
 - `group_by` is restricted to `service`, `env`, `level`, and `error_code`
+- `group_by` cannot contain more than `3` fields
 - `bucket`, when set, must be `minute`, `hour`, or `day`
+- bucketed queries cannot produce more than `5000` time buckets
 - `rate` requires a `bucket`
 - `top_k` requires at least one `group_by` field and does not support time bucketing
 - `percentile` requires `percentile` between `0` and `100`

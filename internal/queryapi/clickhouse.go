@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -101,6 +102,54 @@ func (s *ClickHouseStore) QueryLogs(ctx context.Context, filter QueryFilter) ([]
 	return logs, nil
 }
 
+func (s *ClickHouseStore) StreamLogs(ctx context.Context, filter QueryFilter, emit func(LogRecord) error) error {
+	if s == nil || s.url == "" {
+		return fmt.Errorf("clickhouse store is not configured")
+	}
+	if emit == nil {
+		return fmt.Errorf("stream emitter is not configured")
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.url, strings.NewReader(buildLogsStreamQuery(filter)))
+	if err != nil {
+		return fmt.Errorf("build clickhouse stream query request: %w", err)
+	}
+	req.Header.Set("Content-Type", "text/plain; charset=utf-8")
+
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("stream clickhouse logs: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= http.StatusBadRequest {
+		payload, readErr := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		if readErr != nil {
+			return fmt.Errorf("clickhouse stream query failed with status %s", resp.Status)
+		}
+		return fmt.Errorf("clickhouse stream query failed with status %s: %s", resp.Status, strings.TrimSpace(string(payload)))
+	}
+
+	decoder := json.NewDecoder(resp.Body)
+	for {
+		var row clickHouseQueryRow
+		if err := decoder.Decode(&row); err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			return fmt.Errorf("decode clickhouse stream row: %w", err)
+		}
+		record, err := toLogRecord(row)
+		if err != nil {
+			return err
+		}
+		if err := emit(record); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (s *ClickHouseStore) QueryAnalytics(ctx context.Context, query AnalyticsQuery) ([]AnalyticsPoint, error) {
 	if s == nil || s.url == "" {
 		return nil, fmt.Errorf("clickhouse store is not configured")
@@ -166,8 +215,16 @@ func buildLogsQuery(filter QueryFilter) string {
 	}
 	query.WriteString("ORDER BY timestamp DESC ")
 	query.WriteString(fmt.Sprintf("LIMIT %d ", filter.Limit))
+	if filter.Offset > 0 {
+		query.WriteString(fmt.Sprintf("OFFSET %d ", filter.Offset))
+	}
 	query.WriteString("FORMAT JSON")
 	return query.String()
+}
+
+func buildLogsStreamQuery(filter QueryFilter) string {
+	query := buildLogsQuery(filter)
+	return strings.TrimSuffix(query, "FORMAT JSON") + "FORMAT JSONEachRow"
 }
 
 func buildAnalyticsQuery(query AnalyticsQuery) string {
@@ -239,6 +296,12 @@ func buildAnalyticsQuery(query AnalyticsQuery) string {
 
 	if query.TopK > 0 {
 		builder.WriteString(fmt.Sprintf("LIMIT %d ", query.TopK))
+	} else {
+		limit := query.Limit
+		if limit <= 0 {
+			limit = defaultLimit
+		}
+		builder.WriteString(fmt.Sprintf("LIMIT %d ", limit))
 	}
 
 	builder.WriteString("FORMAT JSON")

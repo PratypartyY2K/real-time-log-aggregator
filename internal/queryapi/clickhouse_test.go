@@ -54,6 +54,51 @@ func TestClickHouseStoreQueriesLogs(t *testing.T) {
 	}
 }
 
+func TestClickHouseStoreStreamsLogs(t *testing.T) {
+	var requestBody string
+	store := &ClickHouseStore{
+		url: "http://clickhouse.local",
+		client: &http.Client{
+			Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+				payload, err := io.ReadAll(r.Body)
+				if err != nil {
+					t.Fatalf("read request body: %v", err)
+				}
+				requestBody = string(payload)
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Status:     "200 OK",
+					Header:     make(http.Header),
+					Body: io.NopCloser(strings.NewReader(
+						`{"timestamp":"2026-07-13T18:00:00Z","tenant_id":1,"service":"checkout","environment":"prod","source":"app","host":"api-1","level":"error","trace_id":"trace-123","fingerprint":"abc123","message":"database timeout","fields_json":"{}","ingest_id":"req-123","raw_size_bytes":128}` + "\n" +
+							`{"timestamp":"2026-07-13T18:01:00Z","tenant_id":1,"service":"billing","environment":"prod","source":"app","host":"api-2","level":"info","trace_id":"trace-456","fingerprint":"def456","message":"ok","fields_json":"{}","ingest_id":"req-456","raw_size_bytes":64}` + "\n",
+					)),
+				}, nil
+			}),
+		},
+	}
+
+	var logs []LogRecord
+	err := store.StreamLogs(context.Background(), QueryFilter{
+		Start:  time.Date(2026, 7, 13, 17, 0, 0, 0, time.UTC),
+		End:    time.Date(2026, 7, 13, 19, 0, 0, 0, time.UTC),
+		Limit:  2,
+		Offset: 10,
+	}, func(record LogRecord) error {
+		logs = append(logs, record)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if !strings.Contains(requestBody, "LIMIT 2 OFFSET 10 FORMAT JSONEachRow") {
+		t.Fatalf("expected streaming limit and offset, got %q", requestBody)
+	}
+	if len(logs) != 2 || logs[0].Service != "checkout" || logs[1].Service != "billing" {
+		t.Fatalf("unexpected streamed logs: %+v", logs)
+	}
+}
+
 func TestClickHouseStoreReturnsServerError(t *testing.T) {
 	store := &ClickHouseStore{
 		url: "http://clickhouse.local",
@@ -115,6 +160,9 @@ func TestClickHouseStoreQueriesAnalytics(t *testing.T) {
 	}
 	if !strings.Contains(requestBody, "formatDateTime(toStartOfMinute(timestamp)") {
 		t.Fatalf("expected bucket selection in query, got %q", requestBody)
+	}
+	if !strings.Contains(requestBody, "LIMIT 100") {
+		t.Fatalf("expected default analytics limit, got %q", requestBody)
 	}
 	if len(results) != 1 || results[0].Group["service"] != "checkout" || results[0].Group["error_code"] != "db_timeout" {
 		t.Fatalf("unexpected analytics result: %+v", results)

@@ -77,6 +77,17 @@ func TestAnalyticsHandlerRejectsPercentileWithoutValueField(t *testing.T) {
 	}
 }
 
+func TestAnalyticsHandlerRejectsExpensiveBucketCount(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/v1/analytics?start=2026-07-01T00:00:00Z&end=2026-07-08T00:00:00Z&aggregation=count&bucket=minute", nil)
+	rec := httptest.NewRecorder()
+
+	NewAnalyticsHandler(&stubAnalyticsStore{}).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", rec.Code)
+	}
+}
+
 func TestAnalyticsHandlerReturnsServiceUnavailableWhenStoreFails(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/v1/analytics?start=2026-07-13T17:00:00Z&end=2026-07-13T19:00:00Z&aggregation=count", nil)
 	rec := httptest.NewRecorder()

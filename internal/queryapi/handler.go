@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -11,12 +12,15 @@ import (
 )
 
 const (
-	defaultLimit = 100
-	maxLimit     = 1000
+	defaultLimit      = 100
+	maxLimit          = 1000
+	maxOffset         = 10000
+	maxRawQueryWindow = 7 * 24 * time.Hour
 )
 
 type LogStore interface {
 	QueryLogs(context.Context, QueryFilter) ([]LogRecord, error)
+	StreamLogs(context.Context, QueryFilter, func(LogRecord) error) error
 }
 
 type Handler struct {
@@ -29,6 +33,8 @@ type QueryFilter struct {
 	Service string
 	Level   string
 	Limit   int
+	Offset  int
+	Stream  bool
 }
 
 type LogRecord struct {
@@ -48,8 +54,9 @@ type LogRecord struct {
 }
 
 type queryResponse struct {
-	Logs  []LogRecord `json:"logs"`
-	Count int         `json:"count"`
+	Logs       []LogRecord `json:"logs"`
+	Count      int         `json:"count"`
+	NextOffset *int        `json:"next_offset,omitempty"`
 }
 
 func NewHandler(store LogStore) *Handler {
@@ -72,16 +79,52 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if filter.Stream {
+		h.streamLogs(w, r, filter)
+		return
+	}
+
 	logs, err := h.store.QueryLogs(r.Context(), filter)
 	if err != nil {
 		writeError(w, http.StatusServiceUnavailable, "failed to query logs")
 		return
 	}
 
+	var nextOffset *int
+	if len(logs) == filter.Limit && filter.Offset+filter.Limit <= maxOffset {
+		next := filter.Offset + filter.Limit
+		nextOffset = &next
+	}
+
 	writeJSON(w, http.StatusOK, queryResponse{
-		Logs:  logs,
-		Count: len(logs),
+		Logs:       logs,
+		Count:      len(logs),
+		NextOffset: nextOffset,
 	})
+}
+
+func (h *Handler) streamLogs(w http.ResponseWriter, r *http.Request, filter QueryFilter) {
+	w.Header().Set("Content-Type", "application/x-ndjson")
+	w.WriteHeader(http.StatusOK)
+
+	encoder := json.NewEncoder(w)
+	count := 0
+	err := h.store.StreamLogs(r.Context(), filter, func(record LogRecord) error {
+		if count >= filter.Limit {
+			return nil
+		}
+		count++
+		if err := encoder.Encode(record); err != nil {
+			return fmt.Errorf("encode stream record: %w", err)
+		}
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+		return nil
+	})
+	if err != nil {
+		_, _ = w.Write([]byte(`{"error":"failed to stream logs"}` + "\n"))
+	}
 }
 
 func parseQueryFilter(r *http.Request) (QueryFilter, error) {
@@ -98,6 +141,9 @@ func parseQueryFilter(r *http.Request) (QueryFilter, error) {
 	if !start.Before(end) {
 		return QueryFilter{}, errors.New("start must be before end")
 	}
+	if end.Sub(start) > maxRawQueryWindow {
+		return QueryFilter{}, errors.New("time range cannot exceed 7 days")
+	}
 
 	service := strings.TrimSpace(query.Get("service"))
 	if service != "" && !isSafeTagFilter(service) {
@@ -109,16 +155,21 @@ func parseQueryFilter(r *http.Request) (QueryFilter, error) {
 		return QueryFilter{}, errors.New("level contains unsupported characters")
 	}
 
-	limit := defaultLimit
-	if rawLimit := strings.TrimSpace(query.Get("limit")); rawLimit != "" {
-		parsed, err := strconv.Atoi(rawLimit)
-		if err != nil || parsed <= 0 {
-			return QueryFilter{}, errors.New("limit must be a positive integer")
+	limit, err := parseBoundedPositiveInt(firstNonEmpty(query.Get("page_size"), query.Get("limit")), defaultLimit, maxLimit, "limit")
+	if err != nil {
+		return QueryFilter{}, err
+	}
+
+	offset := 0
+	if rawOffset := strings.TrimSpace(query.Get("offset")); rawOffset != "" {
+		parsed, err := strconv.Atoi(rawOffset)
+		if err != nil || parsed < 0 {
+			return QueryFilter{}, errors.New("offset must be a non-negative integer")
 		}
-		if parsed > maxLimit {
-			parsed = maxLimit
+		if parsed > maxOffset {
+			return QueryFilter{}, errors.New("offset exceeds maximum")
 		}
-		limit = parsed
+		offset = parsed
 	}
 
 	return QueryFilter{
@@ -127,7 +178,42 @@ func parseQueryFilter(r *http.Request) (QueryFilter, error) {
 		Service: service,
 		Level:   level,
 		Limit:   limit,
+		Offset:  offset,
+		Stream:  parseBool(query.Get("stream")),
 	}, nil
+}
+
+func parseBoundedPositiveInt(raw string, defaultValue, maxValue int, name string) (int, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return defaultValue, nil
+	}
+	parsed, err := strconv.Atoi(raw)
+	if err != nil || parsed <= 0 {
+		return 0, errors.New(name + " must be a positive integer")
+	}
+	if parsed > maxValue {
+		parsed = maxValue
+	}
+	return parsed, nil
+}
+
+func parseBool(raw string) bool {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "1", "true", "yes":
+		return true
+	default:
+		return false
+	}
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func parseRequiredTimestamp(value, name string) (time.Time, error) {

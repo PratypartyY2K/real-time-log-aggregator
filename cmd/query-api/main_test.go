@@ -101,6 +101,18 @@ func (s *stubLogStore) QueryLogs(context.Context, queryapi.QueryFilter) ([]query
 	return s.logs, s.err
 }
 
+func (s *stubLogStore) StreamLogs(_ context.Context, _ queryapi.QueryFilter, emit func(queryapi.LogRecord) error) error {
+	if s.err != nil {
+		return s.err
+	}
+	for _, record := range s.logs {
+		if err := emit(record); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (s *stubLogStore) QueryAnalytics(context.Context, queryapi.AnalyticsQuery) ([]queryapi.AnalyticsPoint, error) {
 	return s.analytics, s.err
 }
