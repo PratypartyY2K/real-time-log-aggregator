@@ -49,5 +49,6 @@ func routes(serviceName string, store readyStore) http.Handler {
 	})))
 	mux.Handle("/v1/analytics", httpMetrics.Middleware("/v1/analytics", queryapi.NewAnalyticsHandler(store)))
 	mux.Handle("/v1/logs", httpMetrics.Middleware("/v1/logs", queryapi.NewHandler(store)))
+	mux.Handle("/v1/query", httpMetrics.Middleware("/v1/query", queryapi.NewQueryDSLHandler(store)))
 	return mux
 }

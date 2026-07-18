@@ -239,6 +239,44 @@ Validation rules:
 - `percentile` requires `percentile` between `0` and `100`
 - `value_field` must be `raw_size_bytes` or `field.<name>`
 
+## `POST /v1/query`
+
+Current behavior:
+
+- accepts a structured JSON query DSL
+- dispatches to raw log queries when `type` is `logs`
+- dispatches to analytical queries when `type` is `analytics`
+- rejects unknown JSON fields
+- applies the same validation, limits, pagination, and streaming behavior as `GET /v1/logs` and `GET /v1/analytics`
+
+Raw log DSL example:
+
+```json
+{
+  "type": "logs",
+  "start": "2026-07-13T17:00:00Z",
+  "end": "2026-07-13T19:00:00Z",
+  "service": "checkout",
+  "level": "error",
+  "page_size": 100,
+  "offset": 200
+}
+```
+
+Analytics DSL example:
+
+```json
+{
+  "type": "analytics",
+  "start": "2026-07-13T17:00:00Z",
+  "end": "2026-07-13T19:00:00Z",
+  "aggregation": "count",
+  "group_by": ["service", "level"],
+  "bucket": "hour",
+  "limit": 500
+}
+```
+
 ## Schema evolution
 
 Current strategy:
