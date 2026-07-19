@@ -1,4 +1,8 @@
-CREATE TABLE IF NOT EXISTS logs
+-- One-time migration for installations created with 001_logs.sql before the
+-- time/service layout was introduced. Stop processor writes while this runs.
+-- The old table is retained as logs_before_optimization for rollback/validation.
+
+CREATE TABLE logs_optimized
 (
     timestamp DateTime64(3, 'UTC') CODEC(Delta(8), ZSTD(1)),
     tenant_id UInt64 CODEC(Delta(8), ZSTD(1)),
@@ -22,3 +26,7 @@ PARTITION BY toDate(timestamp)
 ORDER BY (timestamp, service)
 TTL timestamp + INTERVAL 30 DAY
 SETTINGS index_granularity = 8192;
+
+INSERT INTO logs_optimized SELECT * FROM logs;
+
+RENAME TABLE logs TO logs_before_optimization, logs_optimized TO logs;

@@ -65,6 +65,20 @@ go run ./cmd/postgres-migrate
 cat db/clickhouse/001_logs.sql | docker compose -f deployments/local/docker-compose.yml exec -T clickhouse clickhouse-client --multiquery
 ```
 
+The schema uses daily time partitions, a `(timestamp, service)` sorting key,
+column-specific compression codecs, and bloom-filter indexes for ingest-id,
+trace-id, and error-code lookups. For an existing database created with an
+older version of `001_logs.sql`, stop processor writes and apply the one-time
+rebuild migration:
+
+```bash
+cat db/clickhouse/002_optimize_logs.sql | docker compose -f deployments/local/docker-compose.yml exec -T clickhouse clickhouse-client --multiquery
+```
+
+The migration keeps the previous table as `logs_before_optimization` so row
+counts can be validated and the rename can be reversed before that backup is
+removed manually.
+
 5. Provision JetStream stream and consumer state:
 
 ```bash
