@@ -21,6 +21,8 @@ services:
 
   clickhouse:
     image: clickhouse/clickhouse-server:25.6
+    environment:
+      CLICKHOUSE_SKIP_USER_SETUP: "1"
     depends_on:
       clickhouse-keeper:
         condition: service_healthy
@@ -34,6 +36,8 @@ services:
 
   clickhouse-shard2:
     image: clickhouse/clickhouse-server:25.6
+    environment:
+      CLICKHOUSE_SKIP_USER_SETUP: "1"
     depends_on:
       clickhouse-keeper:
         condition: service_healthy
