@@ -1,7 +1,7 @@
 GO ?= go
 GOFMT ?= gofmt
 
-.PHONY: build migrate-postgres run-ingest run-query run-processor fmt fmt-check test integration-test ci
+.PHONY: build migrate-postgres run-ingest run-query run-processor fmt fmt-check test integration-test validate-repository distributed-integration ci
 
 build:
 	$(GO) build ./...
@@ -39,4 +39,10 @@ test:
 integration-test:
 	$(GO) test -tags=integration ./internal/processor -run TestIngestQueueProcessorFlow -count=1
 
-ci: fmt-check test build integration-test
+validate-repository:
+	bash .github/scripts/validate-repository.sh
+
+distributed-integration:
+	bash .github/scripts/distributed-clickhouse-integration.sh
+
+ci: fmt-check test build integration-test validate-repository

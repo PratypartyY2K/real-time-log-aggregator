@@ -40,6 +40,13 @@ jobs:
       - name: Build all packages
         run: make build
 
+  validate-repository:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Validate Compose, ClickHouse XML, and documentation
+        run: make validate-repository
+
   integration:
     runs-on: ubuntu-latest
     steps:
@@ -50,3 +57,11 @@ jobs:
           cache: true
       - name: Run integration flow check
         run: make integration-test
+
+  distributed-clickhouse:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - name: Run distributed ClickHouse integration check
+        run: make distributed-integration
