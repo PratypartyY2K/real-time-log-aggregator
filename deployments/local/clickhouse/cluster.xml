@@ -1,0 +1,26 @@
+<clickhouse>
+    <remote_servers>
+        <logs_cluster>
+            <shard>
+                <internal_replication>false</internal_replication>
+                <replica>
+                    <host>clickhouse</host>
+                    <port>9000</port>
+                </replica>
+            </shard>
+            <shard>
+                <internal_replication>false</internal_replication>
+                <replica>
+                    <host>clickhouse-shard2</host>
+                    <port>9000</port>
+                </replica>
+            </shard>
+        </logs_cluster>
+    </remote_servers>
+    <zookeeper>
+        <node>
+            <host>clickhouse-keeper</host>
+            <port>9181</port>
+        </node>
+    </zookeeper>
+</clickhouse>

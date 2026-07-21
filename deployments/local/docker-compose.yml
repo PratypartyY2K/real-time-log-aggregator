@@ -21,11 +21,40 @@ services:
 
   clickhouse:
     image: clickhouse/clickhouse-server:25.6
+    depends_on:
+      clickhouse-keeper:
+        condition: service_healthy
     ports:
       - "8123:8123"
       - "9000:9000"
     volumes:
-      - clickhouse-data:/var/lib/clickhouse
+      - clickhouse-shard1-data:/var/lib/clickhouse
+      - ./clickhouse/cluster.xml:/etc/clickhouse-server/config.d/cluster.xml:ro
+      - ./clickhouse/shard1-macros.xml:/etc/clickhouse-server/config.d/macros.xml:ro
+
+  clickhouse-shard2:
+    image: clickhouse/clickhouse-server:25.6
+    depends_on:
+      clickhouse-keeper:
+        condition: service_healthy
+    ports:
+      - "8124:8123"
+      - "9001:9000"
+    volumes:
+      - clickhouse-shard2-data:/var/lib/clickhouse
+      - ./clickhouse/cluster.xml:/etc/clickhouse-server/config.d/cluster.xml:ro
+      - ./clickhouse/shard2-macros.xml:/etc/clickhouse-server/config.d/macros.xml:ro
+
+  clickhouse-keeper:
+    image: clickhouse/clickhouse-keeper:25.6
+    volumes:
+      - clickhouse-keeper-data:/var/lib/clickhouse-keeper
+      - ./clickhouse/keeper.xml:/etc/clickhouse-keeper/keeper_config.xml:ro
+    healthcheck:
+      test: ["CMD", "clickhouse-keeper-client", "-q", "ruok"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
 
   prometheus:
     image: prom/prometheus:v3.5.0
@@ -51,5 +80,7 @@ services:
 volumes:
   nats-data:
   postgres-data:
-  clickhouse-data:
+  clickhouse-shard1-data:
+  clickhouse-shard2-data:
+  clickhouse-keeper-data:
   grafana-data:
