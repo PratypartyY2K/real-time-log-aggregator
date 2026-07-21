@@ -1,6 +1,6 @@
 # API Reference
 
-This document describes the HTTP surfaces implemented today. Transport details for the JetStream contract live in [docs/jetstream.md](/Users/pratyushkumar/Documents/Real-time%20Log%20Aggregator/docs/jetstream.md). System-level behavior and tradeoffs live in [docs/architecture.md](/Users/pratyushkumar/Documents/Real-time%20Log%20Aggregator/docs/architecture.md).
+This document describes the HTTP surfaces implemented today. Transport details for the JetStream contract live in [jetstream.md](./jetstream.md). System-level behavior and tradeoffs live in [architecture.md](./architecture.md).
 
 ## `POST /v1/logs`
 
@@ -50,7 +50,7 @@ Wire contract:
 
 - subject: `logs.raw`
 - schema: `logs.raw.v1`
-- topology/bootstrap: see [docs/jetstream.md](/Users/pratyushkumar/Documents/Real-time%20Log%20Aggregator/docs/jetstream.md)
+- topology/bootstrap: see [jetstream.md](./jetstream.md)
 
 Response shape:
 

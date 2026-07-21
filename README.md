@@ -76,7 +76,7 @@ go run ./cmd/query-api
 
 The complete bootstrap procedure—including API-key seeding, migrations,
 configuration, health checks, load testing, and failure exercises—is in
-[docs/operations.md](/Users/pratyushkumar/Documents/Real-time%20Log%20Aggregator/docs/operations.md).
+[docs/operations.md](docs/operations.md).
 
 ## Verification
 
@@ -89,11 +89,11 @@ end-to-end ingest/queue/processor integration test.
 
 ## Documentation
 
-- [Architecture and design](/Users/pratyushkumar/Documents/Real-time%20Log%20Aggregator/docs/architecture.md) — HLD, LLD, data flows, guarantees, scaling, and tradeoffs
-- [Operations guide](/Users/pratyushkumar/Documents/Real-time%20Log%20Aggregator/docs/operations.md) — local setup, configuration, migrations, load testing, and runbooks
-- [HTTP API](/Users/pratyushkumar/Documents/Real-time%20Log%20Aggregator/docs/api.md) — endpoint contracts and validation
-- [JetStream contract](/Users/pratyushkumar/Documents/Real-time%20Log%20Aggregator/docs/jetstream.md) — subjects, schemas, replay, and DLQ behavior
-- [Distributed ClickHouse](/Users/pratyushkumar/Documents/Real-time%20Log%20Aggregator/docs/distributed-clickhouse.md) — sharding, coordinator behavior, migration, and production topology
+- [Architecture and design](docs/architecture.md) — HLD, LLD, data flows, guarantees, scaling, and tradeoffs
+- [Operations guide](docs/operations.md) — local setup, configuration, migrations, load testing, and runbooks
+- [HTTP API](docs/api.md) — endpoint contracts and validation
+- [JetStream contract](docs/jetstream.md) — subjects, schemas, replay, and DLQ behavior
+- [Distributed ClickHouse](docs/distributed-clickhouse.md) — sharding, coordinator behavior, migration, and production topology
 
 ## Current engineering boundaries
 

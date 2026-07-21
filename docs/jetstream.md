@@ -1,6 +1,6 @@
 # JetStream Topology
 
-This document defines the stream contract and replay model for the asynchronous boundary between `ingest-api` and `processor`. For the end-to-end system view, see [docs/architecture.md](/Users/pratyushkumar/Documents/Real-time%20Log%20Aggregator/docs/architecture.md).
+This document defines the stream contract and replay model for the asynchronous boundary between `ingest-api` and `processor`. For the end-to-end system view, see [architecture.md](./architecture.md).
 
 ## `logs.raw` event
 
