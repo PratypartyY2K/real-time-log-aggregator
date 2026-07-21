@@ -75,7 +75,7 @@ func handleBatch(ctx context.Context, logger app.Logger, writer LogWriter, ruleS
 	if writer == nil {
 		return fmt.Errorf("processor writer is not configured")
 	}
-	alreadyProcessed, err := writer.AlreadyProcessed(ctx, batch.RequestID)
+	alreadyProcessed, err := writer.AlreadyProcessed(ctx, batch.TenantID, batch.RequestID)
 	if err != nil {
 		return fmt.Errorf("check existing ingest id: %w", err)
 	}

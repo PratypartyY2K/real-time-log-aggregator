@@ -63,7 +63,7 @@ func TestClickHouseWriterWritesJSONEachRowBatch(t *testing.T) {
 	if contentType != "text/plain; charset=utf-8" {
 		t.Fatalf("unexpected content type: %s", contentType)
 	}
-	if !strings.HasPrefix(body, "INSERT INTO logs FORMAT JSONEachRow\n") {
+	if !strings.HasPrefix(body, "INSERT INTO logs SETTINGS insert_distributed_sync = 1 FORMAT JSONEachRow\n") {
 		t.Fatalf("expected insert statement prefix, got %q", body)
 	}
 	if !strings.Contains(body, `"tenant_id":42`) {
@@ -100,6 +100,32 @@ func TestClickHouseWriterReturnsServerError(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "clickhouse insert failed") {
 		t.Fatalf("expected clickhouse insert error, got %v", err)
+	}
+}
+
+func TestClickHouseWriterScopesReplayCheckToTenantShard(t *testing.T) {
+	var body string
+	writer := &ClickHouseWriter{
+		url: "http://clickhouse.local",
+		client: &http.Client{Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+			payload, err := io.ReadAll(r.Body)
+			if err != nil {
+				t.Fatalf("read request: %v", err)
+			}
+			body = string(payload)
+			return &http.Response{StatusCode: http.StatusOK, Status: "200 OK", Header: make(http.Header), Body: io.NopCloser(strings.NewReader(""))}, nil
+		})},
+	}
+
+	processed, err := writer.AlreadyProcessed(context.Background(), 42, "req-123")
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if processed {
+		t.Fatal("expected batch not to be processed")
+	}
+	if !strings.Contains(body, "WHERE tenant_id = 42 AND ingest_id = 'req-123'") || !strings.Contains(body, "optimize_skip_unused_shards = 1") {
+		t.Fatalf("expected tenant-prunable replay query, got %q", body)
 	}
 }
 

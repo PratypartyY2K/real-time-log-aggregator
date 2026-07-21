@@ -14,7 +14,7 @@ import (
 )
 
 type LogWriter interface {
-	AlreadyProcessed(context.Context, string) (bool, error)
+	AlreadyProcessed(context.Context, uint64, string) (bool, error)
 	WriteBatch(context.Context, []NormalizedLogRecord) error
 }
 
@@ -55,7 +55,10 @@ func (w *ClickHouseWriter) Check(ctx context.Context) error {
 	return commonclickhouse.Probe(ctx, w.url, w.client)
 }
 
-func (w *ClickHouseWriter) AlreadyProcessed(ctx context.Context, ingestID string) (bool, error) {
+func (w *ClickHouseWriter) AlreadyProcessed(ctx context.Context, tenantID uint64, ingestID string) (bool, error) {
+	if tenantID == 0 {
+		return false, fmt.Errorf("tenant id is required")
+	}
 	if strings.TrimSpace(ingestID) == "" {
 		return false, fmt.Errorf("ingest id is required")
 	}
@@ -63,7 +66,7 @@ func (w *ClickHouseWriter) AlreadyProcessed(ctx context.Context, ingestID string
 		return false, fmt.Errorf("clickhouse writer is not configured")
 	}
 
-	query := "SELECT 1 FROM logs WHERE ingest_id = '" + strings.ReplaceAll(ingestID, "'", "''") + "' LIMIT 1 FORMAT JSONEachRow\n"
+	query := fmt.Sprintf("SELECT 1 FROM logs WHERE tenant_id = %d AND ingest_id = '%s' LIMIT 1 SETTINGS optimize_skip_unused_shards = 1 FORMAT JSONEachRow\n", tenantID, strings.ReplaceAll(ingestID, "'", "''"))
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, w.url, strings.NewReader(query))
 	if err != nil {
 		return false, fmt.Errorf("build clickhouse exists request: %w", err)
@@ -100,7 +103,7 @@ func (w *ClickHouseWriter) WriteBatch(ctx context.Context, records []NormalizedL
 	}
 
 	var body bytes.Buffer
-	body.WriteString("INSERT INTO logs FORMAT JSONEachRow\n")
+	body.WriteString("INSERT INTO logs SETTINGS insert_distributed_sync = 1 FORMAT JSONEachRow\n")
 
 	encoder := json.NewEncoder(&body)
 	for _, record := range records {

@@ -189,7 +189,7 @@ type integrationLogWriter struct {
 	processedIDs           map[string]struct{}
 }
 
-func (w *integrationLogWriter) AlreadyProcessed(_ context.Context, ingestID string) (bool, error) {
+func (w *integrationLogWriter) AlreadyProcessed(_ context.Context, _ uint64, ingestID string) (bool, error) {
 	w.alreadyProcessedChecks++
 	_, ok := w.processedIDs[ingestID]
 	return ok, nil

@@ -481,7 +481,7 @@ type stubLogWriter struct {
 	alreadyProcessedChecks int
 }
 
-func (w *stubLogWriter) AlreadyProcessed(_ context.Context, _ string) (bool, error) {
+func (w *stubLogWriter) AlreadyProcessed(_ context.Context, _ uint64, _ string) (bool, error) {
 	w.alreadyProcessedChecks++
 	return w.alreadyProcessed, w.alreadyProcessedErr
 }
