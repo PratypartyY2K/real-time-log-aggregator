@@ -81,6 +81,22 @@ func TestHandlerReturnsNextOffsetWhenPageIsFull(t *testing.T) {
 	}
 }
 
+func TestHandlerReportsPartialResults(t *testing.T) {
+	store := &stubLogStore{status: ClusterStatus{Partial: true, UnavailableShards: []string{"shard-2"}}}
+	req := tenantRequest(httptest.NewRequest(http.MethodGet, "/v1/logs?start=2026-07-13T17:00:00Z&end=2026-07-13T19:00:00Z", nil))
+	rec := httptest.NewRecorder()
+
+	NewHandler(store).ServeHTTP(rec, req)
+
+	var payload queryResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !payload.Partial || len(payload.UnavailableShards) != 1 || payload.UnavailableShards[0] != "shard-2" {
+		t.Fatalf("expected partial result metadata, got %+v", payload)
+	}
+}
+
 func TestHandlerStreamsLogsAsNDJSON(t *testing.T) {
 	store := &stubLogStore{
 		logs: []LogRecord{
@@ -152,6 +168,11 @@ type stubLogStore struct {
 	filter QueryFilter
 	logs   []LogRecord
 	err    error
+	status ClusterStatus
+}
+
+func (s *stubLogStore) ClusterStatus(context.Context) ClusterStatus {
+	return s.status
 }
 
 func tenantRequest(req *http.Request) *http.Request {

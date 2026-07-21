@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -16,8 +17,9 @@ import (
 )
 
 type ClickHouseStore struct {
-	url    string
-	client *http.Client
+	url       string
+	shardURLs []string
+	client    *http.Client
 }
 
 type clickHouseQueryResponse struct {
@@ -44,13 +46,55 @@ type clickHouseQueryRow struct {
 	RawSizeBytes uint32 `json:"raw_size_bytes"`
 }
 
-func NewClickHouseStore(dsn string) *ClickHouseStore {
+func NewClickHouseStore(dsn string, shardDSNs ...string) *ClickHouseStore {
 	return &ClickHouseStore{
-		url: strings.TrimSpace(dsn),
+		url:       strings.TrimSpace(dsn),
+		shardURLs: normalizedURLs(shardDSNs),
 		client: &http.Client{
 			Timeout: 10 * time.Second,
 		},
 	}
+}
+
+func normalizedURLs(values []string) []string {
+	urls := make([]string, 0, len(values))
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			urls = append(urls, value)
+		}
+	}
+	return urls
+}
+
+func (s *ClickHouseStore) ClusterStatus(ctx context.Context) ClusterStatus {
+	if s == nil || len(s.shardURLs) == 0 {
+		return ClusterStatus{}
+	}
+
+	probeCtx, cancel := context.WithTimeout(ctx, time.Second)
+	defer cancel()
+
+	type probeResult struct {
+		index int
+		err   error
+	}
+	results := make(chan probeResult, len(s.shardURLs))
+	for index, url := range s.shardURLs {
+		go func(index int, url string) {
+			results <- probeResult{index: index, err: commonclickhouse.Probe(probeCtx, url, s.client)}
+		}(index, url)
+	}
+
+	status := ClusterStatus{}
+	for range s.shardURLs {
+		result := <-results
+		if result.err != nil {
+			status.UnavailableShards = append(status.UnavailableShards, fmt.Sprintf("shard-%d", result.index+1))
+		}
+	}
+	slices.Sort(status.UnavailableShards)
+	status.Partial = len(status.UnavailableShards) > 0
+	return status
 }
 
 func (s *ClickHouseStore) Check(ctx context.Context) error {
@@ -229,7 +273,7 @@ func buildLogsQuery(filter QueryFilter) string {
 	if filter.Offset > 0 {
 		query.WriteString(fmt.Sprintf("OFFSET %d ", filter.Offset))
 	}
-	query.WriteString("FORMAT JSON")
+	query.WriteString("SETTINGS optimize_skip_unused_shards = 1, skip_unavailable_shards = 1 FORMAT JSON")
 	return query.String()
 }
 
@@ -317,7 +361,7 @@ func buildAnalyticsQuery(query AnalyticsQuery) string {
 		builder.WriteString(fmt.Sprintf("LIMIT %d ", limit))
 	}
 
-	builder.WriteString("FORMAT JSON")
+	builder.WriteString("SETTINGS optimize_skip_unused_shards = 1, skip_unavailable_shards = 1 FORMAT JSON")
 	return builder.String()
 }
 

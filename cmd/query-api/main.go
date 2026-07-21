@@ -27,7 +27,7 @@ func main() {
 	if err := db.Ping(); err != nil {
 		log.Fatal(err)
 	}
-	service := app.NewHTTPService(cfg, routes(cfg.ServiceName, db, auth.NewPostgresAuthenticator(db), queryapi.NewClickHouseStore(cfg.ClickHouseDSN)))
+	service := app.NewHTTPService(cfg, routes(cfg.ServiceName, db, auth.NewPostgresAuthenticator(db), queryapi.NewClickHouseStore(cfg.ClickHouseDSN, cfg.ClickHouseShardDSNs...)))
 	app.Run(service)
 }
 

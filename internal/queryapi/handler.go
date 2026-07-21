@@ -27,6 +27,15 @@ type Handler struct {
 	store LogStore
 }
 
+type ClusterStatus struct {
+	Partial           bool     `json:"partial"`
+	UnavailableShards []string `json:"unavailable_shards,omitempty"`
+}
+
+type ClusterStatusProvider interface {
+	ClusterStatus(context.Context) ClusterStatus
+}
+
 type QueryFilter struct {
 	TenantID uint64
 	Start    time.Time
@@ -55,9 +64,11 @@ type LogRecord struct {
 }
 
 type queryResponse struct {
-	Logs       []LogRecord `json:"logs"`
-	Count      int         `json:"count"`
-	NextOffset *int        `json:"next_offset,omitempty"`
+	Logs              []LogRecord `json:"logs"`
+	Count             int         `json:"count"`
+	NextOffset        *int        `json:"next_offset,omitempty"`
+	Partial           bool        `json:"partial"`
+	UnavailableShards []string    `json:"unavailable_shards,omitempty"`
 }
 
 func NewHandler(store LogStore) *Handler {
@@ -85,9 +96,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	filter.TenantID = tenantID
+	clusterStatus := clusterStatus(r.Context(), h.store)
 
 	if filter.Stream {
-		h.streamLogs(w, r, filter)
+		h.streamLogs(w, r, filter, clusterStatus)
 		return
 	}
 
@@ -104,14 +116,17 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, queryResponse{
-		Logs:       logs,
-		Count:      len(logs),
-		NextOffset: nextOffset,
+		Logs:              logs,
+		Count:             len(logs),
+		NextOffset:        nextOffset,
+		Partial:           clusterStatus.Partial,
+		UnavailableShards: clusterStatus.UnavailableShards,
 	})
 }
 
-func (h *Handler) streamLogs(w http.ResponseWriter, r *http.Request, filter QueryFilter) {
+func (h *Handler) streamLogs(w http.ResponseWriter, r *http.Request, filter QueryFilter, status ClusterStatus) {
 	w.Header().Set("Content-Type", "application/x-ndjson")
+	setClusterStatusHeaders(w.Header(), status)
 	w.WriteHeader(http.StatusOK)
 
 	encoder := json.NewEncoder(w)
@@ -131,6 +146,21 @@ func (h *Handler) streamLogs(w http.ResponseWriter, r *http.Request, filter Quer
 	})
 	if err != nil {
 		_, _ = w.Write([]byte(`{"error":"failed to stream logs"}` + "\n"))
+	}
+}
+
+func clusterStatus(ctx context.Context, store any) ClusterStatus {
+	provider, ok := store.(ClusterStatusProvider)
+	if !ok {
+		return ClusterStatus{}
+	}
+	return provider.ClusterStatus(ctx)
+}
+
+func setClusterStatusHeaders(header http.Header, status ClusterStatus) {
+	header.Set("X-Logagg-Partial-Results", strconv.FormatBool(status.Partial))
+	if len(status.UnavailableShards) > 0 {
+		header.Set("X-Logagg-Unavailable-Shards", strings.Join(status.UnavailableShards, ","))
 	}
 }
 

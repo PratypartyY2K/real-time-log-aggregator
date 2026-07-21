@@ -27,6 +27,7 @@ type Config struct {
 	NATSBackpressureDelay     time.Duration
 	PostgresDSN               string
 	ClickHouseDSN             string
+	ClickHouseShardDSNs       []string
 }
 
 func Load(defaultServiceName, defaultHTTPAddr string) Config {
@@ -50,7 +51,25 @@ func Load(defaultServiceName, defaultHTTPAddr string) Config {
 		NATSBackpressureDelay:     envOrDefaultDuration("NATS_BACKPRESSURE_DELAY", 250*time.Millisecond),
 		PostgresDSN:               envOrDefault("POSTGRES_DSN", "postgres://logagg:logagg@localhost:55432/logagg?sslmode=disable"),
 		ClickHouseDSN:             envOrDefault("CLICKHOUSE_DSN", "http://localhost:8123"),
+		ClickHouseShardDSNs:       envOrDefaultList("CLICKHOUSE_SHARD_DSNS", []string{"http://localhost:8123", "http://localhost:8124"}),
 	}
+}
+
+func envOrDefaultList(key string, fallback []string) []string {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return append([]string(nil), fallback...)
+	}
+	values := make([]string, 0)
+	for _, value := range strings.Split(raw, ",") {
+		if value = strings.TrimSpace(value); value != "" {
+			values = append(values, value)
+		}
+	}
+	if len(values) == 0 {
+		return append([]string(nil), fallback...)
+	}
+	return values
 }
 
 func defaultMetricsAddr(serviceName string) string {

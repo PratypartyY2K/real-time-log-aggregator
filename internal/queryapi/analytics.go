@@ -49,15 +49,17 @@ type AnalyticsPoint struct {
 }
 
 type analyticsResponse struct {
-	Aggregation string           `json:"aggregation"`
-	Bucket      string           `json:"bucket,omitempty"`
-	GroupBy     []string         `json:"group_by,omitempty"`
-	TopK        int              `json:"top_k,omitempty"`
-	Percentile  float64          `json:"percentile,omitempty"`
-	ValueField  string           `json:"value_field,omitempty"`
-	Limit       int              `json:"limit,omitempty"`
-	Results     []AnalyticsPoint `json:"results"`
-	Count       int              `json:"count"`
+	Aggregation       string           `json:"aggregation"`
+	Bucket            string           `json:"bucket,omitempty"`
+	GroupBy           []string         `json:"group_by,omitempty"`
+	TopK              int              `json:"top_k,omitempty"`
+	Percentile        float64          `json:"percentile,omitempty"`
+	ValueField        string           `json:"value_field,omitempty"`
+	Limit             int              `json:"limit,omitempty"`
+	Results           []AnalyticsPoint `json:"results"`
+	Count             int              `json:"count"`
+	Partial           bool             `json:"partial"`
+	UnavailableShards []string         `json:"unavailable_shards,omitempty"`
 }
 
 var allowedGroupBys = []string{"service", "env", "level", "error_code"}
@@ -87,6 +89,7 @@ func (h *AnalyticsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	query.TenantID = tenantID
+	clusterStatus := clusterStatus(r.Context(), h.store)
 
 	results, err := h.store.QueryAnalytics(r.Context(), query)
 	if err != nil {
@@ -95,15 +98,17 @@ func (h *AnalyticsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, analyticsResponse{
-		Aggregation: query.Aggregation,
-		Bucket:      query.Bucket,
-		GroupBy:     query.GroupBy,
-		TopK:        query.TopK,
-		Percentile:  query.Percentile,
-		ValueField:  query.ValueField,
-		Limit:       query.Limit,
-		Results:     results,
-		Count:       len(results),
+		Aggregation:       query.Aggregation,
+		Bucket:            query.Bucket,
+		GroupBy:           query.GroupBy,
+		TopK:              query.TopK,
+		Percentile:        query.Percentile,
+		ValueField:        query.ValueField,
+		Limit:             query.Limit,
+		Results:           results,
+		Count:             len(results),
+		Partial:           clusterStatus.Partial,
+		UnavailableShards: clusterStatus.UnavailableShards,
 	})
 }
 

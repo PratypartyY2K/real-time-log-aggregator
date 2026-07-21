@@ -2,12 +2,31 @@ package queryapi
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestClickHouseStoreReportsUnavailableShards(t *testing.T) {
+	store := &ClickHouseStore{
+		shardURLs: []string{"http://shard-1.local", "http://shard-2.local"},
+		client: &http.Client{Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+			if r.URL.Host == "shard-2.local" {
+				return nil, errors.New("connection refused")
+			}
+			return &http.Response{StatusCode: http.StatusOK, Status: "200 OK", Header: make(http.Header), Body: io.NopCloser(strings.NewReader("1\n"))}, nil
+		})},
+	}
+
+	status := store.ClusterStatus(context.Background())
+
+	if !status.Partial || len(status.UnavailableShards) != 1 || status.UnavailableShards[0] != "shard-2" {
+		t.Fatalf("unexpected cluster status: %+v", status)
+	}
+}
 
 func TestClickHouseStoreQueriesLogs(t *testing.T) {
 	var requestBody string
@@ -96,7 +115,7 @@ func TestClickHouseStoreStreamsLogs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
-	if !strings.Contains(requestBody, "LIMIT 2 OFFSET 10 FORMAT JSONEachRow") {
+	if !strings.Contains(requestBody, "LIMIT 2 OFFSET 10 SETTINGS optimize_skip_unused_shards = 1, skip_unavailable_shards = 1 FORMAT JSONEachRow") {
 		t.Fatalf("expected streaming limit and offset, got %q", requestBody)
 	}
 	if len(logs) != 2 || logs[0].Service != "checkout" || logs[1].Service != "billing" {
