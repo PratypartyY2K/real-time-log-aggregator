@@ -279,7 +279,7 @@ Initial manual policy:
 
 ## Current gaps
 
-1. Add read-side authn/authz to `query-api`.
+1. Add finer-grained service/environment authorization to the tenant-scoped `query-api` reads.
 2. Replace the process-local rate limiter with a distributed implementation if multiple `ingest-api` replicas are introduced.
 3. Add external notification sinks beyond the current log dispatcher.
 4. Add richer query filters and tenant-scoped saved-query workflows.

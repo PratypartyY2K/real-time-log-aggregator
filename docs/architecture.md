@@ -132,9 +132,9 @@ Current read API:
 
 ## 3. Query flow
 
-1. A client calls `GET /v1/logs` with `start`, `end`, and optional filters.
-2. `query-api` validates the filter set.
-3. `query-api` generates a ClickHouse query.
+1. A client calls `GET /v1/logs` with `X-API-Key`, `start`, `end`, and optional filters.
+2. `query-api` validates the active API key in Postgres and resolves its tenant.
+3. `query-api` validates the filter set and generates a tenant-scoped ClickHouse query.
 4. ClickHouse returns normalized rows.
 5. `query-api` decodes `fields_json` back into JSON and returns the response.
 
@@ -379,8 +379,8 @@ Current tenant isolation model:
 
 Current limitations:
 
-- `query-api` does not yet enforce authn/authz on reads.
-- `GET /v1/logs` supports service and level filtering but not explicit tenant-scoped access control at the HTTP layer.
+- `query-api` requires an active API key for log, analytics, and DSL reads.
+- Every ClickHouse read includes the tenant derived from the API key; clients cannot supply or override the tenant identifier.
 - The in-memory rate limiter is process-local and not shared across replicas.
 
 ## Configuration

@@ -104,12 +104,14 @@ Current behavior:
 Current behavior:
 
 - `ingest-api` checks Postgres and NATS
-- `query-api` checks ClickHouse
+- `query-api` checks Postgres and ClickHouse
 
 ## `GET /v1/logs`
 
 Current behavior:
 
+- requires `X-API-Key`
+- derives the tenant scope from the active API key and always filters ClickHouse by that tenant
 - queries normalized logs from ClickHouse
 - requires `start` and `end` RFC3339 timestamps
 - supports optional exact-match `service` and `level` filters
@@ -174,6 +176,7 @@ When `stream=true`, the response content type is `application/x-ndjson` and each
 
 Current behavior:
 
+- requires `X-API-Key` and applies its tenant scope to the ClickHouse query
 - queries aggregated views over normalized logs from ClickHouse
 - requires `start` and `end` RFC3339 timestamps
 - requires `aggregation`, one of `count`, `rate`, or `percentile`
@@ -243,6 +246,7 @@ Validation rules:
 
 Current behavior:
 
+- requires `X-API-Key` and applies its tenant scope to the dispatched query
 - accepts a structured JSON query DSL
 - dispatches to raw log queries when `type` is `logs`
 - dispatches to analytical queries when `type` is `analytics`
