@@ -119,6 +119,7 @@ Current behavior:
 - supports optional `offset`, max `10000`
 - supports `stream=true` for newline-delimited JSON streaming
 - returns logs ordered by newest `timestamp` first
+- returns `partial` and `unavailable_shards` metadata when a distributed read skips an unavailable shard
 - returns normalized records including `tenant_id`, `environment`, `source`, `host`, `trace_id`, `fingerprint`, `ingest_id`, and `raw_size_bytes`
 
 Example request:
@@ -171,6 +172,8 @@ Streaming response:
 ```
 
 When `stream=true`, the response content type is `application/x-ndjson` and each line is one normalized log record.
+Completeness is reported through `X-Logagg-Partial-Results`; unavailable shard
+names are listed in `X-Logagg-Unavailable-Shards`.
 
 ## `GET /v1/analytics`
 
@@ -186,6 +189,7 @@ Current behavior:
 - supports `top_k` for grouped leaderboard-style queries without bucketing
 - requires `percentile` and `value_field` when `aggregation=percentile`
 - supports optional `limit`, default `100`, max `1000`
+- returns `partial` and `unavailable_shards` metadata for best-effort distributed results
 
 Example request:
 

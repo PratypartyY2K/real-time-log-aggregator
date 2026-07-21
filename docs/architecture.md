@@ -1,468 +1,624 @@
 # Real-time Log Aggregator Architecture
 
-## Overview
+This document is the architectural source of truth for the implemented system.
+It covers the high-level design (HLD), low-level design (LLD), data model,
+distributed-system behavior, guarantees, failure modes, and evolution path.
 
-This system is a multi-tenant backend for ingesting application logs, buffering them durably, normalizing them into a queryable analytical shape, and evaluating alert rules against each ingested batch.
+## 1. Problem statement
 
-The implementation is intentionally split across three concerns:
+The platform accepts multi-tenant application logs, absorbs bursty write load,
+normalizes and stores records for analytical access, evaluates alert rules, and
+supports replay without multiplying persisted data or alert transitions.
 
-- `ingest-api` handles write traffic, authentication, request validation, and publication to JetStream.
-- `processor` handles asynchronous normalization, persistence to ClickHouse, alert evaluation, alert state transitions, and notification dispatch.
-- `query-api` handles read traffic against normalized data in ClickHouse.
+The design optimizes for:
 
-Supporting infrastructure is also explicit:
+- durable acceptance independent of analytical-storage latency
+- horizontal scaling of stateless services
+- tenant isolation throughout ingestion, storage, and querying
+- bounded and observable failure recovery
+- efficient time-range and tenant-scoped analytical queries
+- explicit delivery semantics rather than an unrealistic exactly-once claim
 
-- `NATS JetStream` is the durable ingest buffer and replay boundary.
-- `ClickHouse` is the analytical store for normalized logs.
-- `Postgres` is the control-plane store for tenants, services, API keys, alert rules, alert state, notification deliveries, and saved queries.
+The current local deployment demonstrates logical sharding. It is not a
+production HA topology because shards and Keeper are not replicated.
 
-This document describes the system as implemented on July 16, 2026.
+## 2. Requirements and constraints
 
-## Goals
+### Functional requirements
 
-- Accept high-throughput batched log ingestion over HTTP.
-- Keep ingestion decoupled from downstream storage and alerting latency.
-- Preserve replayability through JetStream.
-- Support safe redelivery and replay with idempotent batch handling.
-- Store normalized logs in a shape optimized for time-range reads.
-- Maintain alert lifecycle state separately from raw log storage.
-- Expose health, readiness, and Prometheus-style metrics for operations.
+- Authenticate producers and readers with API keys.
+- Accept bounded batches of structured logs over HTTP.
+- Preserve accepted batches in a durable replayable stream.
+- Normalize timestamps, tags, trace IDs, hosts, fields, and fingerprints.
+- Query raw logs and time-bucketed/grouped analytics.
+- Evaluate threshold and pattern rules and persist alert lifecycle state.
+- Retry transient failures and isolate poison messages in a DLQ.
+- Expose health, readiness, metrics, and partial-result status.
 
-## High-level Topology
+### Non-functional requirements
 
-```text
-producers
-  -> ingest-api
-  -> NATS JetStream stream LOGS (logs.raw, logs.raw.dlq)
-  -> processor
-  -> ClickHouse logs table
-  -> query-api
-  -> readers
+| Quality | Design response |
+|---|---|
+| Availability | Stateless APIs, durable queue, best-effort reads, retrying writes |
+| Scalability | Queue-based worker scaling and tenant-hashed ClickHouse shards |
+| Durability | JetStream persistence, Postgres volumes, ClickHouse shard volumes |
+| Consistency | At-least-once delivery plus application-level batch idempotency |
+| Isolation | Tenant identity derived from API keys and enforced in every read/write |
+| Operability | Readiness dependency checks, Prometheus metrics, Grafana dashboards |
+| Evolvability | Versioned events, explicit interfaces, separate control/data planes |
 
-processor
-  -> Postgres alert_rules / alert_instances / alert_events / notification_deliveries
+### Explicit constraints
+
+- Alert evaluation currently runs inline with processing.
+- Rate limiting is process-local and therefore approximate across replicas.
+- Idempotency is batch-scoped using `ingest_id`, not record-scoped.
+- The local ClickHouse cluster has two shards with one replica each.
+
+## 3. High-level design
+
+### 3.1 System context
+
+```mermaid
+flowchart LR
+    Producer["Application / log producer"]
+    Operator["Operator"]
+    Reader["Developer / dashboard"]
+    Platform["Real-time Log Aggregator"]
+    Notification["Notification destination"]
+
+    Producer -->|"log batches"| Platform
+    Reader -->|"raw and analytical queries"| Platform
+    Operator -->|"configuration, replay, monitoring"| Platform
+    Platform -->|"alert notifications"| Notification
 ```
 
-## Runtime Components
-
-## `ingest-api`
-
-Responsibilities:
-
-- Accepts `POST /v1/logs`.
-- Requires `X-API-Key`.
-- Validates request shape, body size, batch size, and per-record timestamps.
-- Resolves the API key against Postgres.
-- Enforces service and environment authorization.
-- Applies an in-memory per-key rate limiter.
-- Computes a deterministic batch fingerprint.
-- Publishes a versioned `logs.raw.v1` event to JetStream.
-
-Behavioral notes:
-
-- A structurally valid batch returns `202 Accepted` only after a successful JetStream publish.
-- The deterministic batch fingerprint is used as both `request_id` and `fingerprint`.
-- The fingerprint is also sent as JetStream `Nats-Msg-Id`, enabling server-side duplicate suppression inside the configured duplicate window.
-
-## `processor`
-
-Responsibilities:
-
-- Pulls from JetStream subject `logs.raw`.
-- Validates the raw event contract.
-- Normalizes records into the ClickHouse storage shape.
-- Checks whether the batch `ingest_id` already exists in ClickHouse.
-- Skips already-processed batches to make replay and redelivery safe.
-- Writes normalized records to ClickHouse.
-- Loads alert rules from Postgres for the batch tenant/service/environment.
-- Evaluates rules against the normalized records.
-- Synchronizes alert instance state in Postgres.
-- Enqueues notification deliveries in Postgres.
-- Dispatches due notifications through the configured dispatcher.
-
-Current notification behavior:
-
-- The default dispatcher is a log-based dispatcher.
-- Notification state and retry bookkeeping are persisted in Postgres.
-- Deliveries move through `pending`, `retrying`, `sent`, and `failed`.
-
-## `query-api`
-
-Responsibilities:
-
-- Exposes read-side HTTP endpoints over normalized ClickHouse data.
-- Supports time-range log queries with optional `service` and `level` filters.
-- Exposes status, health, readiness, and Prometheus metrics endpoints.
-
-Current read API:
-
-- `GET /v1/logs`
-- `GET /v1/status`
-- `GET /healthz`
-- `GET /readyz`
-- `GET /metrics`
-
-## Data Flow
-
-## 1. Ingestion flow
-
-1. A producer sends a JSON batch to `POST /v1/logs`.
-2. `ingest-api` validates the batch and authorizes the API key against Postgres.
-3. `ingest-api` computes a deterministic batch fingerprint from tenant, service, env, source, and log content.
-4. `ingest-api` publishes a `logs.raw.v1` event to JetStream subject `logs.raw`.
-5. JetStream stores the batch durably in stream `LOGS`.
-
-## 2. Processing flow
-
-1. `processor` fetches batches from JetStream using a pull consumer.
-2. The event is decoded and validated.
-3. Each raw log record is normalized:
-   - timestamps are converted to UTC
-   - service, environment, source, and level are normalized
-   - host and trace ID are extracted from fields
-   - remaining fields are serialized into stable JSON
-   - a record fingerprint is computed for grouping and alert targeting
-4. `processor` checks ClickHouse for an existing row with the same `ingest_id`.
-5. If already processed, the batch is skipped and acknowledged.
-6. Otherwise, normalized rows are inserted into ClickHouse.
-7. Alert rules are loaded from Postgres and evaluated against the normalized batch.
-8. Alert state is reconciled in Postgres.
-9. Notification deliveries are enqueued and due notifications are dispatched.
-10. The JetStream message is acknowledged on success.
-
-## 3. Query flow
-
-1. A client calls `GET /v1/logs` with `X-API-Key`, `start`, `end`, and optional filters.
-2. `query-api` validates the active API key in Postgres and resolves its tenant.
-3. `query-api` validates the filter set and generates a tenant-scoped ClickHouse query.
-4. ClickHouse returns normalized rows.
-5. `query-api` decodes `fields_json` back into JSON and returns the response.
-
-## Message Contract
-
-The ingest HTTP contract is versioned independently from the JetStream event contract.
-
-Current request-side policy:
-
-- clients must send `schema_version: "logs.ingest.v1"` to `POST /v1/logs`
-- ingest performs strict request-shape validation before auth and publish
-- canonical transformations happen at ingest for supported variations such as level aliases, whitespace trimming, and UTC timestamp normalization
-- incompatible request-shape changes should be introduced as a new ingest schema version rather than silently broadening `v1`
-
-The primary transport contract is `logs.raw.v1`.
-
-Fields:
-
-- `schema_version`: currently `logs.raw.v1`
-- `request_id`: deterministic batch identifier
-- `fingerprint`: same deterministic batch fingerprint used for JetStream dedupe
-- `received_at`: UTC ingest timestamp generated by `ingest-api`
-- `tenant_id`: tenant derived from API key authorization
-- `service`
-- `env`
-- `source`
-- `logs[]`: raw records containing `timestamp`, `level`, `message`, and optional `fields`
-
-Contract ownership:
-
-- `ingest-api` produces the event.
-- `processor` validates and consumes the event.
-- `docs/jetstream.md` is the transport-specific reference.
-
-## Delivery Semantics
-
-The system does not implement exactly-once processing.
-
-Current guarantees:
-
-- JetStream publication is idempotent within `NATS_DEDUPE_WINDOW` because the batch fingerprint is sent as `Nats-Msg-Id`.
-- Processing semantics are `at-least-once`.
-- Replay and consumer redelivery are made safe by checking for an existing `ingest_id` in ClickHouse before writing.
-
-Implications:
-
-- Producers may safely retry the same batch within the dedupe window without creating multiple JetStream copies.
-- The processor may receive a batch more than once.
-- A batch can still be reintroduced after the dedupe window expires, but processor-side `ingest_id` checks prevent duplicate persistence and duplicate alert transitions for already-written batches.
-
-## Replay Model
-
-Replay is intentionally anchored to JetStream rather than ClickHouse or Postgres.
-
-Supported processor replay modes:
-
-- `NATS_REPLAY_MODE=live`
-  - bind to the durable consumer and process new traffic
-- `NATS_REPLAY_MODE=all`
-  - replay the full stream from the beginning through an ephemeral pull subscription
-- `NATS_REPLAY_MODE=sequence`
-  - replay from `NATS_REPLAY_SEQUENCE`
-- `NATS_REPLAY_MODE=time`
-  - replay from `NATS_REPLAY_TIME` parsed as RFC3339/RFC3339Nano
-
-Operational intent:
-
-- Use `live` for the default deployment.
-- Use `all`, `sequence`, or `time` for backfills, reprocessing, or recovery exercises.
-- Rely on batch idempotency in the processor so replay does not multiply persisted rows or reopen alert state unnecessarily.
-
-## Persistence Model
-
-## ClickHouse
-
-The analytical table is `logs`.
-
-Stored fields:
-
-- `timestamp`
-- `tenant_id`
-- `service`
-- `environment`
-- `source`
-- `host`
-- `level`
-- `trace_id`
-- `fingerprint`
-- `message`
-- `fields_json`
-- `ingest_id`
-- `raw_size_bytes`
-
-Engine and layout:
-
-- `MergeTree`
-- partitioned by `toDate(timestamp)`
-- ordered by `(tenant_id, service, environment, timestamp, level)`
-- 30-day TTL on `timestamp`
-
-Design intent:
-
-- Time-range scans are the primary read pattern.
-- `ingest_id` is stored for replay-safe idempotency checks.
-- `fingerprint` is stored separately from `ingest_id` because it represents record similarity, not batch identity.
-
-## Postgres
-
-Postgres holds control-plane and alerting state.
-
-Current tables:
-
-- `tenants`
-- `services`
-- `api_keys`
-- `alert_rules`
-- `alert_instances`
-- `alert_events`
-- `notification_deliveries`
-- `saved_queries`
-
-Responsibilities:
-
-- tenant and service scoping
-- API key authorization and rate-limit metadata
-- alert rule definitions
-- alert lifecycle state
-- notification retry bookkeeping
-- saved query storage for future UX expansion
-
-## Alerting Architecture
-
-Alert evaluation currently happens inline during batch processing.
-
-Supported rule types:
-
-- `count_threshold`
-- `pattern_match`
-
-Filter capabilities:
-
-- `level`
-- `source`
-- `host`
-- `trace_id`
-- `message_contains`
-- `pattern`
-- `target`
-- `field_equals`
-
-Grouping:
-
-- Rules may group by named fields such as `service`, `environment`, `source`, `host`, `level`, `trace_id`, `fingerprint`, or `field.<name>`.
-- When no explicit group is present, the system uses `scope=all`.
-
-State transitions:
-
-- New matching group creates an `active` alert instance and a `triggered` event.
-- Repeated matches within cooldown produce a `suppressed` state change.
-- Repeated matches after cooldown update the active instance and create a `triggered` event.
-- Missing groups for previously active instances produce a `resolved` event and mark the instance resolved.
-
-Notifications:
-
-- Triggered and resolved state changes enqueue notification deliveries.
-- Deliveries are dispatched from Postgres-backed pending work.
-- Failed deliveries are retried with bounded attempts and retry delay.
-
-## Failure Handling
-
-## Ingestion failures
-
-- Invalid API keys return `401`.
-- Unauthorized service/environment scope returns `403`.
-- Rate-limited keys return `429`.
-- Invalid payloads return `400`.
-- Oversized request bodies return `413`.
-- JetStream publish failures return `503`.
-
-## Processing failures
-
-- Malformed JetStream payloads are terminated and published to `logs.raw.dlq`.
-- Contract validation failures are treated as poison batches and moved to the DLQ.
-- Normalization failures are treated as poison batches and moved to the DLQ.
-- Retryable downstream errors are negatively acknowledged with delay until `NATS_MAX_DELIVER` is reached.
-- Retry exhaustion sends the batch to `logs.raw.dlq` and terminates it.
-
-## Read path failures
-
-- ClickHouse query failures return `503` from `query-api`.
-- Invalid query parameters return `400`.
-
-## Observability
-
-All services expose Prometheus-compatible metrics on `/metrics`.
-
-Current operational endpoints:
-
-- `ingest-api`
-  - `/healthz`
-  - `/readyz`
-  - `/metrics`
-  - `/metricsz`
-- `processor`
-  - `/healthz`
-  - `/readyz`
-  - `/metrics`
-- `query-api`
-  - `/healthz`
-  - `/readyz`
-  - `/metrics`
-  - `/v1/status`
-
-Current metric families include:
-
-- HTTP request metrics
-- ingest auth and validation outcomes
-- queue lag and consumer backlog metrics
-- processor batch counts
-- processor processed log counts
-- processor cumulative batch duration
-
-Readiness dependencies:
-
-- `ingest-api`
-  - Postgres
-  - NATS
-- `processor`
-  - Postgres
-  - NATS
-  - ClickHouse
-- `query-api`
-  - ClickHouse
-
-## Security and Multi-tenancy
-
-Current tenant isolation model:
-
-- Every API key belongs to a tenant.
-- An API key may optionally be bound to a single service/environment pair through `service_id`.
-- The tenant ID from authorization is carried into the raw event and persisted into normalized rows.
-
-Current limitations:
-
-- `query-api` requires an active API key for log, analytics, and DSL reads.
-- Every ClickHouse read includes the tenant derived from the API key; clients cannot supply or override the tenant identifier.
-- The in-memory rate limiter is process-local and not shared across replicas.
-
-## Configuration
-
-Shared configuration comes from environment variables in `internal/config/config.go`.
-
-Important variables:
-
-- `SERVICE_NAME`
-- `HTTP_ADDR`
-- `METRICS_ADDR`
-- `LOG_LEVEL`
-- `NATS_URL`
-- `NATS_STREAM`
-- `NATS_SUBJECT`
-- `NATS_DLQ_SUBJECT`
-- `NATS_DURABLE`
-- `NATS_MAX_DELIVER`
-- `NATS_DEDUPE_WINDOW`
-- `NATS_REPLAY_MODE`
-- `NATS_REPLAY_SEQUENCE`
-- `NATS_REPLAY_TIME`
-- `POSTGRES_DSN`
-- `CLICKHOUSE_DSN`
-
-Defaults are local-development-friendly and are used by the Docker Compose environment.
-
-## Scaling Characteristics
-
-`ingest-api`:
-
-- horizontally scalable for HTTP write traffic
-- limited by process-local rate limiting if multiple replicas are used
-- depends on JetStream for buffering under downstream pressure
-- can slow or reject producers when consumer lag crosses the configured watermark
-
-`processor`:
-
-- currently modeled around one logical durable consumer for ordered batch handling
-- replay modes use ephemeral pull subscriptions
-- idempotent batch checks reduce the risk of duplicate writes during restarts or replays
-- should scale from queue lag rather than CPU alone because backlog is the primary user-visible pressure signal
-
-Manual autoscaling strategy:
-
-- treat `logagg_queue_consumer_pending` as the primary scale signal
-- corroborate it with `logagg_processor_batches_total` and `logagg_processor_logs_total` drain rate
-- scale up when backlog remains above the chosen watermark for a sustained interval and downstream stores are healthy
-- scale down only after backlog returns near zero and remains stable
-
-`query-api`:
-
-- horizontally scalable and stateless
-- read throughput is primarily bounded by ClickHouse
-
-## Tradeoffs and Current Gaps
-
-Intentional tradeoffs:
-
-- `at-least-once` semantics were chosen over exactly-once complexity.
-- ClickHouse is used as the analytical store, not the source of truth for control-plane state.
-- Alert evaluation runs inline in the processor to keep the architecture small.
-
-Known gaps:
-
-- Read-side authorization is not yet implemented.
-- Per-key rate limiting is not distributed.
-- Batch idempotency is implemented at batch scope, not individual record scope.
-- Notification delivery currently logs instead of integrating with external sinks.
-- The processor uses a simple existence check on `ingest_id`; there is no dedicated processed-batches table.
-
-## Source Map
-
-Useful implementation entrypoints:
-
-- [cmd/ingest-api/main.go](/Users/pratyushkumar/Documents/Real-time%20Log%20Aggregator/cmd/ingest-api/main.go)
-- [cmd/processor/main.go](/Users/pratyushkumar/Documents/Real-time%20Log%20Aggregator/cmd/processor/main.go)
-- [cmd/query-api/main.go](/Users/pratyushkumar/Documents/Real-time%20Log%20Aggregator/cmd/query-api/main.go)
-- [internal/ingest/handler.go](/Users/pratyushkumar/Documents/Real-time%20Log%20Aggregator/internal/ingest/handler.go)
-- [internal/stream/nats.go](/Users/pratyushkumar/Documents/Real-time%20Log%20Aggregator/internal/stream/nats.go)
-- [internal/processor/consumer.go](/Users/pratyushkumar/Documents/Real-time%20Log%20Aggregator/internal/processor/consumer.go)
-- [internal/processor/normalize.go](/Users/pratyushkumar/Documents/Real-time%20Log%20Aggregator/internal/processor/normalize.go)
-- [internal/queryapi/clickhouse.go](/Users/pratyushkumar/Documents/Real-time%20Log%20Aggregator/internal/queryapi/clickhouse.go)
-- [db/postgres/001_init.sql](/Users/pratyushkumar/Documents/Real-time%20Log%20Aggregator/db/postgres/001_init.sql)
-- [db/clickhouse/001_logs.sql](/Users/pratyushkumar/Documents/Real-time%20Log%20Aggregator/db/clickhouse/001_logs.sql)
+### 3.2 Container view
+
+```mermaid
+flowchart TB
+    subgraph Clients["Clients"]
+        P["Producers"]
+        R["Readers"]
+        O["Operators"]
+    end
+
+    subgraph Stateless["Stateless Go services"]
+        I["ingest-api"]
+        W["processor workers"]
+        Q["query-api / query coordinator"]
+    end
+
+    subgraph Messaging["Messaging plane"]
+        JS["NATS JetStream\nLOGS stream"]
+        DLQ["logs.raw.dlq"]
+    end
+
+    subgraph Data["Data plane"]
+        C1["ClickHouse shard 1"]
+        C2["ClickHouse shard 2"]
+        K["ClickHouse Keeper"]
+    end
+
+    subgraph Control["Control plane"]
+        PG["Postgres"]
+    end
+
+    subgraph Observe["Observability"]
+        PR["Prometheus"]
+        G["Grafana"]
+    end
+
+    P --> I
+    I --> PG
+    I --> JS
+    JS --> W
+    W --> C1 & C2
+    W --> PG
+    W --> DLQ
+    R --> Q
+    Q --> PG
+    Q --> C1 & C2
+    K --- C1
+    K --- C2
+    I & W & Q --> PR
+    PR --> G
+    O --> G
+```
+
+### 3.3 Control plane versus data plane
+
+| Plane | Technology | Owns |
+|---|---|---|
+| Ingest transport | NATS JetStream | Durable batches, replay position, redelivery |
+| Analytical data | ClickHouse | Normalized logs and aggregate execution |
+| Control/state | Postgres | Tenants, keys, services, rules, alerts, deliveries |
+| Coordination | ClickHouse Keeper | Cluster metadata and distributed DDL coordination |
+
+The separation prevents high-volume immutable log data from competing with
+transactional alert state and keeps stream retention independent of query-store
+retention.
+
+## 4. Core data flows
+
+### 4.1 Ingestion sequence
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant P as Producer
+    participant I as ingest-api
+    participant PG as Postgres
+    participant J as JetStream
+
+    P->>I: POST /v1/logs + X-API-Key
+    I->>PG: Resolve active key and service scope
+    PG-->>I: tenant_id, service_id, rate limit
+    I->>I: Validate, normalize envelope, fingerprint batch
+    I->>J: Publish logs.raw.v1 with Nats-Msg-Id
+    alt durable publish succeeds
+        J-->>I: PubAck
+        I-->>P: 202 Accepted + request_id
+    else stream unavailable
+        J--xI: publish error
+        I-->>P: 503 Service Unavailable
+    end
+```
+
+Acceptance means the stream durably acknowledged the event; it does not mean
+ClickHouse persistence or alert evaluation has completed.
+
+### 4.2 Processing and retry sequence
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant J as JetStream
+    participant W as processor
+    participant CH as ClickHouse Distributed table
+    participant PG as Postgres
+    participant D as Dispatcher
+
+    J->>W: Pull logs.raw.v1 batch
+    W->>W: Validate contract and normalize records
+    W->>CH: Check tenant_id + ingest_id
+    alt batch already persisted
+        CH-->>W: exists
+        W->>J: ACK
+    else new batch
+        CH-->>W: absent
+        W->>PG: Load active alert rules
+        W->>W: Evaluate rules
+        W->>CH: Synchronous distributed insert
+        W->>PG: Reconcile alert state and enqueue deliveries
+        W->>D: Dispatch due notifications
+        alt all required work succeeds
+            W->>J: ACK
+        else transient dependency failure
+            W->>J: NAK with delay
+        else poison input or retry exhaustion
+            W->>J: Publish logs.raw.dlq and terminate
+        end
+    end
+```
+
+Writes use `insert_distributed_sync=1`; an unavailable target shard therefore
+fails the batch and lets JetStream drive recovery instead of acknowledging data
+that only exists in a local distribution queue.
+
+### 4.3 Distributed query sequence
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant R as Reader
+    participant Q as query-api
+    participant PG as Postgres
+    participant S1 as Shard 1 / coordinator
+    participant S2 as Shard 2
+
+    R->>Q: Query + X-API-Key
+    Q->>PG: Resolve tenant identity
+    PG-->>Q: tenant_id
+    par bounded health probes
+        Q->>S1: SELECT 1
+        Q->>S2: SELECT 1
+    end
+    Q->>S1: Tenant-scoped query on Distributed logs
+    S1->>S1: Evaluate shard key and local partial
+    S1->>S2: Fan out if required
+    S2-->>S1: Rows or aggregate state
+    S1->>S1: Merge, order, and limit
+    S1-->>Q: Final result
+    Q-->>R: Results + partial/unavailable_shards metadata
+```
+
+Every query includes the authenticated `tenant_id`. Because the distributed
+table shards by `cityHash64(tenant_id)`, `optimize_skip_unused_shards=1` normally
+reduces a tenant query to one shard. ClickHouse—not application code—performs
+fan-out and aggregation-state merging.
+
+## 5. Distributed storage design
+
+### 5.1 Logical and physical layout
+
+```mermaid
+flowchart TB
+    L["logs\nDistributed engine"]
+    H["cityHash64(tenant_id)"]
+    S1["Shard 1: logs_local\nMergeTree"]
+    S2["Shard 2: logs_local\nMergeTree"]
+
+    L --> H
+    H -->|"hash mod shard count = 0"| S1
+    H -->|"hash mod shard count = 1"| S2
+
+    S1 --> P1["Daily partitions"]
+    S2 --> P2["Daily partitions"]
+    P1 --> O1["ORDER BY tenant_id, timestamp, service"]
+    P2 --> O2["ORDER BY tenant_id, timestamp, service"]
+```
+
+The three independent layout decisions serve different purposes:
+
+| Mechanism | Key | Purpose |
+|---|---|---|
+| Sharding | `cityHash64(tenant_id)` | Distribute tenants and route reads/writes |
+| Partitioning | `toDate(timestamp)` | TTL cleanup and partition pruning |
+| Sorting | `(tenant_id, timestamp, service)` | Tenant/time range locality |
+
+Compression uses Delta codecs for numeric/time columns, LowCardinality for
+bounded tag dimensions, and ZSTD for variable strings. Bloom filters accelerate
+ingest-ID, trace-ID, and extracted error-code lookups where the primary sort key
+cannot.
+
+### 5.2 Query coordination and partial failure
+
+The `query-api` is the external coordinator, while ClickHouse's `Distributed`
+engine is the execution coordinator. Reads set:
+
+- `optimize_skip_unused_shards=1`
+- `skip_unavailable_shards=1`
+
+The API probes configured shard HTTP endpoints with a one-second budget. If a
+shard is unavailable, JSON responses expose `partial=true` and
+`unavailable_shards`; streaming responses expose equivalent headers. This is a
+conservative completeness signal: an unavailable shard may not contain the
+authenticated tenant, but the API never labels uncertain data as complete.
+
+Writes deliberately do not degrade to partial success.
+
+### 5.3 Production deployment target
+
+```mermaid
+flowchart TB
+    LB["Load balancer"]
+    I["ingest-api replicas"]
+    Q["query-api replicas"]
+    W["processor replicas"]
+    N["3-node NATS JetStream"]
+    PG["HA Postgres"]
+
+    subgraph CH["ClickHouse cluster"]
+        S1R1["Shard 1 / replica 1"]
+        S1R2["Shard 1 / replica 2"]
+        S2R1["Shard 2 / replica 1"]
+        S2R2["Shard 2 / replica 2"]
+    end
+
+    subgraph Keeper["Keeper quorum"]
+        K1["K1"]
+        K2["K2"]
+        K3["K3"]
+    end
+
+    OBJ["Object storage backups"]
+
+    LB --> I & Q
+    I --> N & PG
+    N --> W
+    W --> CH & PG
+    Q --> CH & PG
+    K1 & K2 & K3 --- CH
+    CH & PG & N --> OBJ
+```
+
+Persistent storage is required for JetStream, Postgres, ClickHouse replicas,
+and Keeper. Compute may be disposable if these stateful layers use durable
+volumes and tested backups.
+
+## 6. Low-level design
+
+### 6.1 Service component view
+
+```mermaid
+flowchart LR
+    subgraph Ingest["ingest-api"]
+        IH["HTTP handler"] --> AUTH["Authenticator"]
+        IH --> RL["Rate limiter"]
+        IH --> BP["Backpressure controller"]
+        IH --> PUB["JetStream publisher"]
+    end
+
+    subgraph Processor["processor"]
+        CON["Pull consumer"] --> NORM["Normalizer"]
+        NORM --> WR["ClickHouse writer"]
+        NORM --> EV["Alert evaluator"]
+        EV --> ST["Alert state store"]
+        ST --> ND["Notification dispatcher"]
+        CON --> DQ["DLQ publisher"]
+    end
+
+    subgraph Query["query-api"]
+        AM["Tenant auth middleware"] --> LH["Log handler"]
+        AM --> AH["Analytics handler"]
+        AM --> DSL["Query DSL handler"]
+        LH & AH & DSL --> CS["ClickHouse store"]
+        CS --> HP["Shard health probes"]
+    end
+```
+
+Interfaces isolate transport and persistence concerns, allowing handler and
+pipeline tests to use deterministic stubs without starting infrastructure.
+
+### 6.2 Package responsibilities
+
+| Package | Responsibility |
+|---|---|
+| `internal/ingest` | Validation, authorization contract, limits, rate limiting, backpressure |
+| `internal/stream` | JetStream publish/consume, replay modes, lag monitoring, DLQ |
+| `internal/processor` | Contract validation, normalization, idempotency, persistence pipeline |
+| `internal/queryapi` | Tenant context, filters, SQL generation, response streaming |
+| `internal/alerts` | Rule evaluation, state transitions, notification retry state |
+| `internal/readiness` | Dependency-specific readiness aggregation |
+| `internal/metrics` | Prometheus formatting and HTTP instrumentation |
+| `internal/config` | Environment-driven runtime configuration |
+
+### 6.3 Postgres domain model
+
+```mermaid
+erDiagram
+    TENANTS ||--o{ SERVICES : owns
+    TENANTS ||--o{ API_KEYS : issues
+    SERVICES o|--o{ API_KEYS : restricts
+    TENANTS ||--o{ ALERT_RULES : defines
+    SERVICES o|--o{ ALERT_RULES : scopes
+    ALERT_RULES ||--o{ ALERT_INSTANCES : creates
+    ALERT_INSTANCES ||--o{ ALERT_EVENTS : records
+    ALERT_INSTANCES ||--o{ NOTIFICATION_DELIVERIES : queues
+    TENANTS ||--o{ SAVED_QUERIES : owns
+
+    TENANTS {
+        bigint id PK
+        text name UK
+    }
+    SERVICES {
+        bigint id PK
+        bigint tenant_id FK
+        text name
+        text environment
+    }
+    API_KEYS {
+        bigint id PK
+        bigint tenant_id FK
+        bigint service_id FK
+        text key_hash UK
+        text status
+        int rate_limit_per_sec
+    }
+    ALERT_RULES {
+        bigint id PK
+        bigint tenant_id FK
+        bigint service_id FK
+        text rule_type
+        jsonb filter_json
+        int window_seconds
+        numeric threshold
+    }
+    ALERT_INSTANCES {
+        bigint id PK
+        bigint rule_id FK
+        text dedupe_key
+        text status
+    }
+    ALERT_EVENTS {
+        bigint id PK
+        bigint alert_instance_id FK
+        text event_type
+        jsonb payload_json
+    }
+    NOTIFICATION_DELIVERIES {
+        bigint id PK
+        bigint alert_instance_id FK
+        text status
+        int attempt_count
+    }
+    SAVED_QUERIES {
+        bigint id PK
+        bigint tenant_id FK
+        jsonb query_json
+    }
+```
+
+### 6.4 Alert lifecycle
+
+```mermaid
+stateDiagram-v2
+    [*] --> Active: first threshold/pattern match
+    Active --> Active: match after cooldown / triggered
+    Active --> Active: match inside cooldown / suppressed
+    Active --> Resolved: group no longer matches
+    Resolved --> Active: subsequent match creates active instance
+    Resolved --> [*]
+```
+
+The dedupe key is derived from rule scope and configured grouping fields. Alert
+events are append-oriented, while the instance row represents current state.
+
+## 7. Contracts and delivery semantics
+
+### 7.1 Versioned boundaries
+
+- HTTP ingestion requires `logs.ingest.v1`.
+- JetStream transport uses `logs.raw.v1`.
+- DLQ envelopes use `logs.dlq.v1`.
+
+Schema versions make incompatible changes explicit and prevent silent producer/
+consumer drift.
+
+### 7.2 At-least-once, not exactly-once
+
+```mermaid
+flowchart LR
+    A["Producer retry"] --> B["JetStream dedupe window"]
+    B --> C["At-least-once delivery"]
+    C --> D["tenant_id + ingest_id check"]
+    D --> E["Idempotent batch outcome"]
+```
+
+- The deterministic batch fingerprint is sent as `Nats-Msg-Id` for stream-side
+  duplicate suppression within `NATS_DEDUPE_WINDOW`.
+- JetStream may redeliver after timeouts or negative acknowledgements.
+- The processor checks `(tenant_id, ingest_id)` before persistence.
+- A crash between ClickHouse persistence and acknowledgement causes redelivery;
+  the existence check then suppresses the duplicate batch.
+
+There is still a distributed transaction boundary between ClickHouse and
+Postgres alert state. The current ordering favors not acknowledging before log
+persistence and state reconciliation complete, but it is not atomic across both
+databases. A production evolution could use a dedicated processed-batch ledger
+or transactional outbox pattern.
+
+## 8. Failure model
+
+| Failure | Observable behavior | Recovery |
+|---|---|---|
+| Invalid/missing API key | `401`/`403` | Correct credentials or scope |
+| Ingest overload | Delay or `429` | Backpressure plus worker scaling |
+| JetStream publish failure | `503`; batch not accepted | Producer retry |
+| Poison event | Published to `logs.raw.dlq` | Inspect, correct, replay |
+| Transient processor dependency failure | NAK and redelivery | Automatic bounded retry |
+| Retry exhaustion | DLQ and terminate | Operator remediation |
+| Target ClickHouse shard unavailable on write | Insert fails; message not ACKed | Shard recovery, then redelivery |
+| Non-coordinator shard unavailable on read | `200` with partial metadata | Retry or accept degraded result |
+| Coordinator unavailable | `503` | Fail over coordinator endpoint |
+| Postgres unavailable | Auth/alert/readiness failure | Database recovery/failover |
+
+## 9. Backpressure and scaling
+
+JetStream absorbs short mismatches between producer rate and processing rate.
+Let:
+
+- `λ` = incoming logs/second
+- `μ` = sustainable processed logs/second per worker
+- `n` = active workers
+
+Backlog grows when `λ > nμ`. Approximate drain time after load returns below
+capacity is:
+
+```text
+drain_time ≈ backlog / (nμ - λ)
+```
+
+`logagg_queue_consumer_pending` is therefore the primary scaling signal; CPU is
+supporting evidence. Scale out when lag remains elevated and dependencies are
+healthy. Scale in only after lag remains near zero to avoid oscillation.
+
+| Component | Horizontal strategy | Current limiter |
+|---|---|---|
+| `ingest-api` | Add stateless replicas behind a load balancer | Process-local rate limiter |
+| `processor` | Add pull-consumer workers | Downstream write rate and alert contention |
+| `query-api` | Add stateless replicas | ClickHouse query capacity |
+| ClickHouse | Add tenant-hashed shards and replicas | Rebalancing existing tenants |
+
+Adding shards changes hash placement. Production expansion therefore requires a
+planned rebalancing strategy—such as weighted shards, explicit tenant placement,
+or migration into a new distributed table—not an uncoordinated config edit.
+
+## 10. Security and tenant isolation
+
+```mermaid
+flowchart LR
+    K["X-API-Key"] --> H["SHA-256 lookup"]
+    H --> T["Resolved tenant_id"]
+    T --> E["Event tenant scope"]
+    T --> Q["Mandatory query predicate"]
+    E --> S["Shard routing"]
+    Q --> S
+```
+
+- Plaintext API keys are not stored; Postgres stores their SHA-256 digests.
+- Ingestion validates service/environment scope against control-plane records.
+- Readers cannot submit or override `tenant_id`.
+- Tenant identity is carried in the request context and required by ClickHouse
+  store methods, which fail closed if it is absent.
+- Parameter values are validated and SQL literals are escaped before query
+  generation.
+
+Future hardening includes secret rotation, TLS/mTLS, audit logging, distributed
+rate limits, and service/environment authorization on the read path.
+
+## 11. Observability model
+
+```mermaid
+flowchart LR
+    S["Services"] -->|"/metrics"| P["Prometheus"]
+    P --> G["Grafana dashboards"]
+    S --> H["healthz: process liveness"]
+    S --> R["readyz: dependency readiness"]
+    J["JetStream state"] --> S
+    C["ClickHouse shard probes"] --> S
+```
+
+The telemetry model follows the pipeline:
+
+- edge: request rate, latency, status, authentication and validation outcomes
+- queue: stream size, pending messages, acknowledgements, redeliveries
+- worker: processed batches/logs, failures, processing duration
+- domain: alert transitions by event type and status
+- storage: readiness and per-request shard completeness
+
+See [operations.md](./operations.md) for concrete metrics and failure drills.
+
+## 12. Key design decisions and tradeoffs
+
+| Decision | Why | Cost |
+|---|---|---|
+| JetStream between ingest and processing | Durable burst absorption and replay | Eventual visibility and operational queue management |
+| ClickHouse for logs | Compression and analytical scans | Poor fit for transactional state |
+| Postgres for control plane | Constraints, transactions, relational ownership | Cross-store consistency boundary |
+| Tenant hash sharding | Stable tenant locality and shard pruning | Hot-tenant risk and rebalancing complexity |
+| ClickHouse `Distributed` coordinator | Native fan-out and aggregate merging | Coordinator dependency and ClickHouse-specific behavior |
+| Synchronous distributed inserts | Prevent acknowledged-but-not-remote writes | Higher write latency and lower availability during shard failure |
+| Best-effort reads | Preserve diagnostic access during partial outage | Results can be incomplete and must be labeled |
+| Inline alert evaluation | Simple, low-latency pipeline | Couples alert throughput to ingestion processing |
+
+## 13. Evolution roadmap
+
+1. Add replicated ClickHouse shards and a three-node Keeper quorum.
+2. Introduce explicit tenant placement or consistent-hash virtual nodes before
+   online shard expansion.
+3. Replace process-local rate limiting with a distributed token bucket.
+4. Move notifications behind a transactional outbox and dedicated workers.
+5. Add a processed-batch ledger to tighten cross-store replay semantics.
+6. Add service/environment authorization and audit events to read APIs.
+7. Add archive/restore workflows once retention and cold-storage requirements
+   are finalized.
+
+## 14. Source map
+
+- Service entrypoints: `cmd/ingest-api`, `cmd/processor`, `cmd/query-api`
+- Ingestion pipeline: `internal/ingest`
+- Stream and replay logic: `internal/stream`
+- Processing pipeline: `internal/processor`
+- Query coordination: `internal/queryapi`
+- Alert domain: `internal/alerts`
+- Postgres schema: `db/postgres/001_init.sql`
+- ClickHouse schemas: `db/clickhouse/*.sql`
+- Local topology: `deployments/local/docker-compose.yml`
+
+Related references:
+
+- [HTTP API](./api.md)
+- [JetStream contract](./jetstream.md)
+- [Distributed ClickHouse](./distributed-clickhouse.md)
+- [Operations guide](./operations.md)
