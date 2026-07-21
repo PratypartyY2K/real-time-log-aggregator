@@ -12,7 +12,7 @@ import (
 )
 
 func TestRoutesExposeQueryEndpoint(t *testing.T) {
-	handler := routes("query-api", &stubLogStore{
+	handler := routes("query-api", nil, stubTenantResolver{}, &stubLogStore{
 		logs: []queryapi.LogRecord{
 			{
 				Timestamp:   time.Date(2026, 7, 13, 18, 0, 0, 0, time.UTC),
@@ -26,6 +26,7 @@ func TestRoutesExposeQueryEndpoint(t *testing.T) {
 	})
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/logs?start=2026-07-13T17:00:00Z&end=2026-07-13T19:00:00Z", nil)
+	req.Header.Set("X-API-Key", "test-key")
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -35,7 +36,7 @@ func TestRoutesExposeQueryEndpoint(t *testing.T) {
 }
 
 func TestRoutesExposeAnalyticsEndpoint(t *testing.T) {
-	handler := routes("query-api", &stubLogStore{
+	handler := routes("query-api", nil, stubTenantResolver{}, &stubLogStore{
 		analytics: []queryapi.AnalyticsPoint{
 			{
 				Bucket: "2026-07-13T18:00:00Z",
@@ -46,6 +47,7 @@ func TestRoutesExposeAnalyticsEndpoint(t *testing.T) {
 	})
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/analytics?start=2026-07-13T17:00:00Z&end=2026-07-13T19:00:00Z&aggregation=count&group_by=service&bucket=hour", nil)
+	req.Header.Set("X-API-Key", "test-key")
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -55,7 +57,7 @@ func TestRoutesExposeAnalyticsEndpoint(t *testing.T) {
 }
 
 func TestRoutesExposeQueryDSLEndpoint(t *testing.T) {
-	handler := routes("query-api", &stubLogStore{
+	handler := routes("query-api", nil, stubTenantResolver{}, &stubLogStore{
 		logs: []queryapi.LogRecord{
 			{
 				Timestamp: time.Date(2026, 7, 13, 18, 0, 0, 0, time.UTC),
@@ -70,6 +72,7 @@ func TestRoutesExposeQueryDSLEndpoint(t *testing.T) {
 		"end":"2026-07-13T19:00:00Z",
 		"service":"checkout"
 	}`))
+	req.Header.Set("X-API-Key", "test-key")
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -79,9 +82,10 @@ func TestRoutesExposeQueryDSLEndpoint(t *testing.T) {
 }
 
 func TestRoutesExposePrometheusMetrics(t *testing.T) {
-	handler := routes("query-api", &stubLogStore{})
+	handler := routes("query-api", nil, stubTenantResolver{}, &stubLogStore{})
 
 	logReq := httptest.NewRequest(http.MethodGet, "/v1/logs?start=2026-07-13T17:00:00Z&end=2026-07-13T19:00:00Z", nil)
+	logReq.Header.Set("X-API-Key", "test-key")
 	logRec := httptest.NewRecorder()
 	handler.ServeHTTP(logRec, logReq)
 
@@ -101,7 +105,7 @@ func TestRoutesExposePrometheusMetrics(t *testing.T) {
 }
 
 func TestRoutesExposeReadiness(t *testing.T) {
-	handler := routes("query-api", &stubLogStore{})
+	handler := routes("query-api", nil, stubTenantResolver{}, &stubLogStore{})
 
 	req := httptest.NewRequest(http.MethodGet, "/readyz", nil)
 	rec := httptest.NewRecorder()
@@ -119,6 +123,12 @@ type stubLogStore struct {
 	logs      []queryapi.LogRecord
 	analytics []queryapi.AnalyticsPoint
 	err       error
+}
+
+type stubTenantResolver struct{}
+
+func (stubTenantResolver) ResolveTenant(context.Context, string) (uint64, bool, error) {
+	return 7, true, nil
 }
 
 func (s *stubLogStore) QueryLogs(context.Context, queryapi.QueryFilter) ([]queryapi.LogRecord, error) {

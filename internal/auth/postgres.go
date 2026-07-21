@@ -10,6 +10,21 @@ import (
 	"github.com/PratypartyY2K/real-time-log-aggregator/internal/ingest"
 )
 
+// ResolveTenant validates an active API key and returns its tenant scope.
+func (a *PostgresAuthenticator) ResolveTenant(ctx context.Context, apiKey string) (uint64, bool, error) {
+	key, err := a.lookupAPIKey(ctx, apiKey)
+	if err != nil {
+		return 0, false, err
+	}
+	if key == nil || key.tenantID <= 0 {
+		return 0, false, nil
+	}
+	if err := a.touchAPIKey(ctx, key.id); err != nil {
+		return 0, false, err
+	}
+	return uint64(key.tenantID), true, nil
+}
+
 type PostgresAuthenticator struct {
 	db *sql.DB
 }
