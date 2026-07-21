@@ -2,6 +2,7 @@
 set -euo pipefail
 
 docker compose -f deployments/local/docker-compose.yml config --quiet
+docker compose -f .github/compose.distributed-clickhouse.yml config --quiet
 
 python3 - <<'PY'
 from pathlib import Path

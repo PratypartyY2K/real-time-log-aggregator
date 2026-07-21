@@ -1,0 +1,40 @@
+services:
+  clickhouse:
+    image: clickhouse/clickhouse-server:25.6
+    environment:
+      CLICKHOUSE_SKIP_USER_SETUP: "1"
+    depends_on:
+      clickhouse-keeper:
+        condition: service_healthy
+    volumes:
+      - clickhouse-shard1-data:/var/lib/clickhouse
+      - ../deployments/local/clickhouse/cluster.xml:/etc/clickhouse-server/config.d/cluster.xml:ro
+      - ../deployments/local/clickhouse/shard1-macros.xml:/etc/clickhouse-server/config.d/macros.xml:ro
+
+  clickhouse-shard2:
+    image: clickhouse/clickhouse-server:25.6
+    environment:
+      CLICKHOUSE_SKIP_USER_SETUP: "1"
+    depends_on:
+      clickhouse-keeper:
+        condition: service_healthy
+    volumes:
+      - clickhouse-shard2-data:/var/lib/clickhouse
+      - ../deployments/local/clickhouse/cluster.xml:/etc/clickhouse-server/config.d/cluster.xml:ro
+      - ../deployments/local/clickhouse/shard2-macros.xml:/etc/clickhouse-server/config.d/macros.xml:ro
+
+  clickhouse-keeper:
+    image: clickhouse/clickhouse-keeper:25.6
+    volumes:
+      - clickhouse-keeper-data:/var/lib/clickhouse-keeper
+      - ../deployments/local/clickhouse/keeper.xml:/etc/clickhouse-keeper/keeper_config.xml:ro
+    healthcheck:
+      test: ["CMD", "clickhouse-keeper-client", "-q", "ruok"]
+      interval: 2s
+      timeout: 2s
+      retries: 20
+
+volumes:
+  clickhouse-shard1-data:
+  clickhouse-shard2-data:
+  clickhouse-keeper-data:
