@@ -37,7 +37,7 @@ test:
 	$(GO) test ./...
 
 integration-test:
-	$(GO) test -tags=integration ./internal/processor -run TestIngestQueueProcessorFlow -count=1
+	$(GO) test ./internal/processor -run TestIngestQueueProcessorFlow -count=1
 
 validate-repository:
 	bash .github/scripts/validate-repository.sh
