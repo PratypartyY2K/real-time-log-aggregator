@@ -26,6 +26,7 @@ type AnalyticsHandler struct {
 }
 
 type AnalyticsQuery struct {
+	TenantID    uint64
 	Start       time.Time
 	End         time.Time
 	Aggregation string
@@ -74,12 +75,18 @@ func (h *AnalyticsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "analytics store unavailable")
 		return
 	}
+	tenantID, ok := TenantIDFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "tenant identity required")
+		return
+	}
 
 	query, err := parseAnalyticsQuery(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	query.TenantID = tenantID
 
 	results, err := h.store.QueryAnalytics(r.Context(), query)
 	if err != nil {

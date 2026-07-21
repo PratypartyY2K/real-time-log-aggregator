@@ -23,12 +23,12 @@ func TestAnalyticsHandlerReturnsAggregatesForValidFilter(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/v1/analytics?start=2026-07-13T17:00:00Z&end=2026-07-13T19:00:00Z&aggregation=count&group_by=service,level&bucket=minute", nil)
 	rec := httptest.NewRecorder()
 
-	NewAnalyticsHandler(store).ServeHTTP(rec, req)
+	NewAnalyticsHandler(store).ServeHTTP(rec, tenantRequest(req))
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
-	if store.query.Aggregation != "count" || store.query.Bucket != "minute" {
+	if store.query.TenantID != 7 || store.query.Aggregation != "count" || store.query.Bucket != "minute" {
 		t.Fatalf("unexpected analytics query: %+v", store.query)
 	}
 	if len(store.query.GroupBy) != 2 || store.query.GroupBy[0] != "service" || store.query.GroupBy[1] != "level" {
@@ -48,7 +48,7 @@ func TestAnalyticsHandlerRejectsUnsupportedGroupBy(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/v1/analytics?start=2026-07-13T17:00:00Z&end=2026-07-13T19:00:00Z&aggregation=count&group_by=message", nil)
 	rec := httptest.NewRecorder()
 
-	NewAnalyticsHandler(&stubAnalyticsStore{}).ServeHTTP(rec, req)
+	NewAnalyticsHandler(&stubAnalyticsStore{}).ServeHTTP(rec, tenantRequest(req))
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", rec.Code)
@@ -59,7 +59,7 @@ func TestAnalyticsHandlerRejectsTopKWithoutGrouping(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/v1/analytics?start=2026-07-13T17:00:00Z&end=2026-07-13T19:00:00Z&aggregation=count&top_k=5", nil)
 	rec := httptest.NewRecorder()
 
-	NewAnalyticsHandler(&stubAnalyticsStore{}).ServeHTTP(rec, req)
+	NewAnalyticsHandler(&stubAnalyticsStore{}).ServeHTTP(rec, tenantRequest(req))
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", rec.Code)
@@ -70,7 +70,7 @@ func TestAnalyticsHandlerRejectsPercentileWithoutValueField(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/v1/analytics?start=2026-07-13T17:00:00Z&end=2026-07-13T19:00:00Z&aggregation=percentile&percentile=95", nil)
 	rec := httptest.NewRecorder()
 
-	NewAnalyticsHandler(&stubAnalyticsStore{}).ServeHTTP(rec, req)
+	NewAnalyticsHandler(&stubAnalyticsStore{}).ServeHTTP(rec, tenantRequest(req))
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", rec.Code)
@@ -81,7 +81,7 @@ func TestAnalyticsHandlerRejectsExpensiveBucketCount(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/v1/analytics?start=2026-07-01T00:00:00Z&end=2026-07-08T00:00:00Z&aggregation=count&bucket=minute", nil)
 	rec := httptest.NewRecorder()
 
-	NewAnalyticsHandler(&stubAnalyticsStore{}).ServeHTTP(rec, req)
+	NewAnalyticsHandler(&stubAnalyticsStore{}).ServeHTTP(rec, tenantRequest(req))
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", rec.Code)
@@ -92,7 +92,7 @@ func TestAnalyticsHandlerReturnsServiceUnavailableWhenStoreFails(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/v1/analytics?start=2026-07-13T17:00:00Z&end=2026-07-13T19:00:00Z&aggregation=count", nil)
 	rec := httptest.NewRecorder()
 
-	NewAnalyticsHandler(&stubAnalyticsStore{err: errors.New("clickhouse unavailable")}).ServeHTTP(rec, req)
+	NewAnalyticsHandler(&stubAnalyticsStore{err: errors.New("clickhouse unavailable")}).ServeHTTP(rec, tenantRequest(req))
 
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("expected 503, got %d", rec.Code)

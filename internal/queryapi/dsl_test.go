@@ -26,7 +26,7 @@ func TestQueryDSLHandlerRoutesLogQuery(t *testing.T) {
 	}`))
 	rec := httptest.NewRecorder()
 
-	NewQueryDSLHandler(store).ServeHTTP(rec, req)
+	NewQueryDSLHandler(store).ServeHTTP(rec, tenantRequest(req))
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
@@ -52,7 +52,7 @@ func TestQueryDSLHandlerRoutesAnalyticsQuery(t *testing.T) {
 	}`))
 	rec := httptest.NewRecorder()
 
-	NewQueryDSLHandler(store).ServeHTTP(rec, req)
+	NewQueryDSLHandler(store).ServeHTTP(rec, tenantRequest(req))
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())

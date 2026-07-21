@@ -28,13 +28,14 @@ type Handler struct {
 }
 
 type QueryFilter struct {
-	Start   time.Time
-	End     time.Time
-	Service string
-	Level   string
-	Limit   int
-	Offset  int
-	Stream  bool
+	TenantID uint64
+	Start    time.Time
+	End      time.Time
+	Service  string
+	Level    string
+	Limit    int
+	Offset   int
+	Stream   bool
 }
 
 type LogRecord struct {
@@ -72,12 +73,18 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "log store unavailable")
 		return
 	}
+	tenantID, ok := TenantIDFromContext(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "tenant identity required")
+		return
+	}
 
 	filter, err := parseQueryFilter(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	filter.TenantID = tenantID
 
 	if filter.Stream {
 		h.streamLogs(w, r, filter)

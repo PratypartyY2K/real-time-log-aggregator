@@ -31,17 +31,21 @@ func TestClickHouseStoreQueriesLogs(t *testing.T) {
 	}
 
 	logs, err := store.QueryLogs(context.Background(), QueryFilter{
-		Start:   time.Date(2026, 7, 13, 17, 0, 0, 0, time.UTC),
-		End:     time.Date(2026, 7, 13, 19, 0, 0, 0, time.UTC),
-		Service: "checkout",
-		Level:   "error",
-		Limit:   25,
+		TenantID: 1,
+		Start:    time.Date(2026, 7, 13, 17, 0, 0, 0, time.UTC),
+		End:      time.Date(2026, 7, 13, 19, 0, 0, 0, time.UTC),
+		Service:  "checkout",
+		Level:    "error",
+		Limit:    25,
 	})
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
 	if !strings.Contains(requestBody, "AND service = 'checkout'") {
 		t.Fatalf("expected service filter in query, got %q", requestBody)
+	}
+	if !strings.Contains(requestBody, "WHERE tenant_id = 1 AND timestamp >=") {
+		t.Fatalf("expected tenant predicate in query, got %q", requestBody)
 	}
 	if !strings.Contains(requestBody, "AND level = 'error'") {
 		t.Fatalf("expected level filter in query, got %q", requestBody)
@@ -80,10 +84,11 @@ func TestClickHouseStoreStreamsLogs(t *testing.T) {
 
 	var logs []LogRecord
 	err := store.StreamLogs(context.Background(), QueryFilter{
-		Start:  time.Date(2026, 7, 13, 17, 0, 0, 0, time.UTC),
-		End:    time.Date(2026, 7, 13, 19, 0, 0, 0, time.UTC),
-		Limit:  2,
-		Offset: 10,
+		TenantID: 1,
+		Start:    time.Date(2026, 7, 13, 17, 0, 0, 0, time.UTC),
+		End:      time.Date(2026, 7, 13, 19, 0, 0, 0, time.UTC),
+		Limit:    2,
+		Offset:   10,
 	}, func(record LogRecord) error {
 		logs = append(logs, record)
 		return nil
@@ -115,9 +120,10 @@ func TestClickHouseStoreReturnsServerError(t *testing.T) {
 	}
 
 	_, err := store.QueryLogs(context.Background(), QueryFilter{
-		Start: time.Date(2026, 7, 13, 17, 0, 0, 0, time.UTC),
-		End:   time.Date(2026, 7, 13, 19, 0, 0, 0, time.UTC),
-		Limit: 10,
+		TenantID: 1,
+		Start:    time.Date(2026, 7, 13, 17, 0, 0, 0, time.UTC),
+		End:      time.Date(2026, 7, 13, 19, 0, 0, 0, time.UTC),
+		Limit:    10,
 	})
 	if err == nil || !strings.Contains(err.Error(), "clickhouse query failed") {
 		t.Fatalf("expected clickhouse query error, got %v", err)
@@ -146,6 +152,7 @@ func TestClickHouseStoreQueriesAnalytics(t *testing.T) {
 	}
 
 	results, err := store.QueryAnalytics(context.Background(), AnalyticsQuery{
+		TenantID:    1,
 		Start:       time.Date(2026, 7, 13, 17, 0, 0, 0, time.UTC),
 		End:         time.Date(2026, 7, 13, 19, 0, 0, 0, time.UTC),
 		Aggregation: "count",
@@ -157,6 +164,9 @@ func TestClickHouseStoreQueriesAnalytics(t *testing.T) {
 	}
 	if !strings.Contains(requestBody, "GROUP BY toStartOfMinute(timestamp), service, JSONExtractString(fields_json, 'error_code')") {
 		t.Fatalf("expected grouped analytics query, got %q", requestBody)
+	}
+	if !strings.Contains(requestBody, "WHERE tenant_id = 1 AND timestamp >=") {
+		t.Fatalf("expected tenant predicate in analytics query, got %q", requestBody)
 	}
 	if !strings.Contains(requestBody, "formatDateTime(toStartOfMinute(timestamp)") {
 		t.Fatalf("expected bucket selection in query, got %q", requestBody)
@@ -171,6 +181,7 @@ func TestClickHouseStoreQueriesAnalytics(t *testing.T) {
 
 func TestClickHouseStoreBuildsTopKPercentileQuery(t *testing.T) {
 	query := buildAnalyticsQuery(AnalyticsQuery{
+		TenantID:    1,
 		Start:       time.Date(2026, 7, 13, 17, 0, 0, 0, time.UTC),
 		End:         time.Date(2026, 7, 13, 19, 0, 0, 0, time.UTC),
 		Aggregation: "percentile",

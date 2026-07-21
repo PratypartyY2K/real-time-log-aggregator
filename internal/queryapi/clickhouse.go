@@ -64,6 +64,9 @@ func (s *ClickHouseStore) QueryLogs(ctx context.Context, filter QueryFilter) ([]
 	if s == nil || s.url == "" {
 		return nil, fmt.Errorf("clickhouse store is not configured")
 	}
+	if filter.TenantID == 0 {
+		return nil, fmt.Errorf("tenant id is required")
+	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.url, strings.NewReader(buildLogsQuery(filter)))
 	if err != nil {
@@ -105,6 +108,9 @@ func (s *ClickHouseStore) QueryLogs(ctx context.Context, filter QueryFilter) ([]
 func (s *ClickHouseStore) StreamLogs(ctx context.Context, filter QueryFilter, emit func(LogRecord) error) error {
 	if s == nil || s.url == "" {
 		return fmt.Errorf("clickhouse store is not configured")
+	}
+	if filter.TenantID == 0 {
+		return fmt.Errorf("tenant id is required")
 	}
 	if emit == nil {
 		return fmt.Errorf("stream emitter is not configured")
@@ -154,6 +160,9 @@ func (s *ClickHouseStore) QueryAnalytics(ctx context.Context, query AnalyticsQue
 	if s == nil || s.url == "" {
 		return nil, fmt.Errorf("clickhouse store is not configured")
 	}
+	if query.TenantID == 0 {
+		return nil, fmt.Errorf("tenant id is required")
+	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.url, strings.NewReader(buildAnalyticsQuery(query)))
 	if err != nil {
@@ -197,7 +206,9 @@ func buildLogsQuery(filter QueryFilter) string {
 	query.WriteString("SELECT ")
 	query.WriteString("timestamp, tenant_id, service, environment, source, host, level, trace_id, fingerprint, message, fields_json, ingest_id, raw_size_bytes ")
 	query.WriteString("FROM logs ")
-	query.WriteString("WHERE timestamp >= toDateTime64(")
+	query.WriteString("WHERE tenant_id = ")
+	query.WriteString(strconv.FormatUint(filter.TenantID, 10))
+	query.WriteString(" AND timestamp >= toDateTime64(")
 	query.WriteString(quoteLiteral(filter.Start.UTC().Format(time.RFC3339Nano)))
 	query.WriteString(", 3, 'UTC') ")
 	query.WriteString("AND timestamp < toDateTime64(")
@@ -251,7 +262,9 @@ func buildAnalyticsQuery(query AnalyticsQuery) string {
 
 	builder.WriteString("SELECT ")
 	builder.WriteString(strings.Join(selectExprs, ", "))
-	builder.WriteString(" FROM logs WHERE timestamp >= toDateTime64(")
+	builder.WriteString(" FROM logs WHERE tenant_id = ")
+	builder.WriteString(strconv.FormatUint(query.TenantID, 10))
+	builder.WriteString(" AND timestamp >= toDateTime64(")
 	builder.WriteString(quoteLiteral(query.Start.UTC().Format(time.RFC3339Nano)))
 	builder.WriteString(", 3, 'UTC') AND timestamp < toDateTime64(")
 	builder.WriteString(quoteLiteral(query.End.UTC().Format(time.RFC3339Nano)))

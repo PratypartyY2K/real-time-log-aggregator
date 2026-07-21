@@ -31,12 +31,12 @@ func TestHandlerReturnsLogsForValidFilter(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/v1/logs?start=2026-07-13T17:00:00Z&end=2026-07-13T19:00:00Z&service=checkout&level=error&page_size=50&offset=25", nil)
 	rec := httptest.NewRecorder()
 
-	NewHandler(store).ServeHTTP(rec, req)
+	NewHandler(store).ServeHTTP(rec, tenantRequest(req))
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
-	if store.filter.Service != "checkout" || store.filter.Level != "error" || store.filter.Limit != 50 || store.filter.Offset != 25 {
+	if store.filter.TenantID != 7 || store.filter.Service != "checkout" || store.filter.Level != "error" || store.filter.Limit != 50 || store.filter.Offset != 25 {
 		t.Fatalf("unexpected filter passed to store: %+v", store.filter)
 	}
 
@@ -46,6 +46,17 @@ func TestHandlerReturnsLogsForValidFilter(t *testing.T) {
 	}
 	if payload.Count != 1 || len(payload.Logs) != 1 {
 		t.Fatalf("expected one log in payload, got %+v", payload)
+	}
+}
+
+func TestHandlerRejectsMissingTenantIdentity(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/v1/logs?start=2026-07-13T17:00:00Z&end=2026-07-13T19:00:00Z", nil)
+	rec := httptest.NewRecorder()
+
+	NewHandler(&stubLogStore{}).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", rec.Code)
 	}
 }
 
@@ -59,7 +70,7 @@ func TestHandlerReturnsNextOffsetWhenPageIsFull(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/v1/logs?start=2026-07-13T17:00:00Z&end=2026-07-13T19:00:00Z&page_size=2&offset=4", nil)
 	rec := httptest.NewRecorder()
 
-	NewHandler(store).ServeHTTP(rec, req)
+	NewHandler(store).ServeHTTP(rec, tenantRequest(req))
 
 	var payload queryResponse
 	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
@@ -80,7 +91,7 @@ func TestHandlerStreamsLogsAsNDJSON(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/v1/logs?start=2026-07-13T17:00:00Z&end=2026-07-13T19:00:00Z&stream=true&page_size=2", nil)
 	rec := httptest.NewRecorder()
 
-	NewHandler(store).ServeHTTP(rec, req)
+	NewHandler(store).ServeHTTP(rec, tenantRequest(req))
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
@@ -97,7 +108,7 @@ func TestHandlerRejectsMissingTimeRange(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/v1/logs?service=checkout", nil)
 	rec := httptest.NewRecorder()
 
-	NewHandler(&stubLogStore{}).ServeHTTP(rec, req)
+	NewHandler(&stubLogStore{}).ServeHTTP(rec, tenantRequest(req))
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", rec.Code)
@@ -108,7 +119,7 @@ func TestHandlerRejectsUnsafeFilter(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/v1/logs?start=2026-07-13T17:00:00Z&end=2026-07-13T19:00:00Z&service=checkout%2Fapi", nil)
 	rec := httptest.NewRecorder()
 
-	NewHandler(&stubLogStore{}).ServeHTTP(rec, req)
+	NewHandler(&stubLogStore{}).ServeHTTP(rec, tenantRequest(req))
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", rec.Code)
@@ -119,7 +130,7 @@ func TestHandlerRejectsExpensiveRawQueryWindow(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/v1/logs?start=2026-07-01T00:00:00Z&end=2026-07-13T00:00:00Z", nil)
 	rec := httptest.NewRecorder()
 
-	NewHandler(&stubLogStore{}).ServeHTTP(rec, req)
+	NewHandler(&stubLogStore{}).ServeHTTP(rec, tenantRequest(req))
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", rec.Code)
@@ -130,7 +141,7 @@ func TestHandlerReturnsServiceUnavailableWhenStoreFails(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/v1/logs?start=2026-07-13T17:00:00Z&end=2026-07-13T19:00:00Z", nil)
 	rec := httptest.NewRecorder()
 
-	NewHandler(&stubLogStore{err: errors.New("clickhouse unavailable")}).ServeHTTP(rec, req)
+	NewHandler(&stubLogStore{err: errors.New("clickhouse unavailable")}).ServeHTTP(rec, tenantRequest(req))
 
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("expected 503, got %d", rec.Code)
@@ -141,6 +152,10 @@ type stubLogStore struct {
 	filter QueryFilter
 	logs   []LogRecord
 	err    error
+}
+
+func tenantRequest(req *http.Request) *http.Request {
+	return req.WithContext(WithTenantID(req.Context(), 7))
 }
 
 func (s *stubLogStore) QueryLogs(_ context.Context, filter QueryFilter) ([]LogRecord, error) {
