@@ -14,6 +14,7 @@ import (
 	"time"
 
 	commonclickhouse "github.com/PratypartyY2K/real-time-log-aggregator/internal/clickhouse"
+	"github.com/PratypartyY2K/real-time-log-aggregator/internal/logging"
 )
 
 type ClickHouseStore struct {
@@ -117,6 +118,7 @@ func (s *ClickHouseStore) QueryLogs(ctx context.Context, filter QueryFilter) ([]
 		return nil, fmt.Errorf("build clickhouse query request: %w", err)
 	}
 	req.Header.Set("Content-Type", "text/plain; charset=utf-8")
+	logging.PropagateContext(ctx, req.Header)
 
 	resp, err := s.client.Do(req)
 	if err != nil {
@@ -165,6 +167,7 @@ func (s *ClickHouseStore) StreamLogs(ctx context.Context, filter QueryFilter, em
 		return fmt.Errorf("build clickhouse stream query request: %w", err)
 	}
 	req.Header.Set("Content-Type", "text/plain; charset=utf-8")
+	logging.PropagateContext(ctx, req.Header)
 
 	resp, err := s.client.Do(req)
 	if err != nil {
@@ -213,6 +216,7 @@ func (s *ClickHouseStore) QueryAnalytics(ctx context.Context, query AnalyticsQue
 		return nil, fmt.Errorf("build clickhouse analytics request: %w", err)
 	}
 	req.Header.Set("Content-Type", "text/plain; charset=utf-8")
+	logging.PropagateContext(ctx, req.Header)
 
 	resp, err := s.client.Do(req)
 	if err != nil {
@@ -266,6 +270,11 @@ func buildLogsQuery(filter QueryFilter) string {
 	if filter.Level != "" {
 		query.WriteString("AND level = ")
 		query.WriteString(quoteLiteral(filter.Level))
+		query.WriteByte(' ')
+	}
+	if filter.TraceID != "" {
+		query.WriteString("AND trace_id = ")
+		query.WriteString(quoteLiteral(filter.TraceID))
 		query.WriteByte(' ')
 	}
 	query.WriteString("ORDER BY timestamp DESC ")

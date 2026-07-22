@@ -42,6 +42,7 @@ type QueryFilter struct {
 	End      time.Time
 	Service  string
 	Level    string
+	TraceID  string
 	Limit    int
 	Offset   int
 	Stream   bool
@@ -191,6 +192,10 @@ func parseQueryFilter(r *http.Request) (QueryFilter, error) {
 	if level != "" && !isSafeTagFilter(level) {
 		return QueryFilter{}, errors.New("level contains unsupported characters")
 	}
+	traceID := strings.TrimSpace(query.Get("trace_id"))
+	if traceID != "" && !isSafeTagFilter(traceID) {
+		return QueryFilter{}, errors.New("trace_id contains unsupported characters")
+	}
 
 	limit, err := parseBoundedPositiveInt(firstNonEmpty(query.Get("page_size"), query.Get("limit")), defaultLimit, maxLimit, "limit")
 	if err != nil {
@@ -214,6 +219,7 @@ func parseQueryFilter(r *http.Request) (QueryFilter, error) {
 		End:     end,
 		Service: service,
 		Level:   level,
+		TraceID: traceID,
 		Limit:   limit,
 		Offset:  offset,
 		Stream:  parseBool(query.Get("stream")),

@@ -49,6 +49,21 @@ func TestHandlerReturnsLogsForValidFilter(t *testing.T) {
 	}
 }
 
+func TestHandlerPassesTraceIDFilterToStore(t *testing.T) {
+	store := &stubLogStore{}
+	req := httptest.NewRequest(http.MethodGet, "/v1/logs?start=2026-07-13T17:00:00Z&end=2026-07-13T19:00:00Z&trace_id=trace-123", nil)
+	rec := httptest.NewRecorder()
+
+	NewHandler(store).ServeHTTP(rec, tenantRequest(req))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if store.filter.TraceID != "trace-123" {
+		t.Fatalf("expected trace filter trace-123, got %q", store.filter.TraceID)
+	}
+}
+
 func TestHandlerRejectsMissingTenantIdentity(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/v1/logs?start=2026-07-13T17:00:00Z&end=2026-07-13T19:00:00Z", nil)
 	rec := httptest.NewRecorder()

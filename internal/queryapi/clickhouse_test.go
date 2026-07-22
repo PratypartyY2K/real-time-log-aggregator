@@ -55,6 +55,7 @@ func TestClickHouseStoreQueriesLogs(t *testing.T) {
 		End:      time.Date(2026, 7, 13, 19, 0, 0, 0, time.UTC),
 		Service:  "checkout",
 		Level:    "error",
+		TraceID:  "trace-123",
 		Limit:    25,
 	})
 	if err != nil {
@@ -68,6 +69,9 @@ func TestClickHouseStoreQueriesLogs(t *testing.T) {
 	}
 	if !strings.Contains(requestBody, "AND level = 'error'") {
 		t.Fatalf("expected level filter in query, got %q", requestBody)
+	}
+	if !strings.Contains(requestBody, "AND trace_id = 'trace-123'") {
+		t.Fatalf("expected trace filter in query, got %q", requestBody)
 	}
 	if !strings.Contains(requestBody, "LIMIT 25") {
 		t.Fatalf("expected limit in query, got %q", requestBody)
