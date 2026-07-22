@@ -81,6 +81,17 @@ func TestRoutesExposeQueryDSLEndpoint(t *testing.T) {
 	}
 }
 
+func TestRoutesExposeGraphEndpoint(t *testing.T) {
+	handler := routes("query-api", nil, stubTenantResolver{}, &stubLogStore{})
+	req := httptest.NewRequest(http.MethodGet, "/v1/graph?start=2026-07-22T10:00:00Z&end=2026-07-22T11:00:00Z", nil)
+	req.Header.Set("X-API-Key", "test-key")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestRoutesExposePrometheusMetrics(t *testing.T) {
 	handler := routes("query-api", nil, stubTenantResolver{}, &stubLogStore{})
 
@@ -149,6 +160,10 @@ func (s *stubLogStore) StreamLogs(_ context.Context, _ queryapi.QueryFilter, emi
 
 func (s *stubLogStore) QueryAnalytics(context.Context, queryapi.AnalyticsQuery) ([]queryapi.AnalyticsPoint, error) {
 	return s.analytics, s.err
+}
+
+func (s *stubLogStore) QueryGraphRecords(context.Context, queryapi.GraphQuery) ([]queryapi.GraphRecord, error) {
+	return nil, s.err
 }
 
 func (s *stubLogStore) Check(context.Context) error {

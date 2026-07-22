@@ -34,6 +34,7 @@ func main() {
 type readyStore interface {
 	queryapi.LogStore
 	queryapi.AnalyticsStore
+	queryapi.GraphStore
 	Check(context.Context) error
 }
 
@@ -64,5 +65,6 @@ func routes(serviceName string, db *sql.DB, resolver queryapi.TenantResolver, st
 	mux.Handle("/v1/analytics", httpMetrics.Middleware("/v1/analytics", queryapi.TenantAuthMiddleware(resolver, queryapi.NewAnalyticsHandler(store))))
 	mux.Handle("/v1/logs", httpMetrics.Middleware("/v1/logs", queryapi.TenantAuthMiddleware(resolver, queryapi.NewHandler(store))))
 	mux.Handle("/v1/query", httpMetrics.Middleware("/v1/query", queryapi.TenantAuthMiddleware(resolver, queryapi.NewQueryDSLHandler(store))))
+	mux.Handle("/v1/graph", httpMetrics.Middleware("/v1/graph", queryapi.TenantAuthMiddleware(resolver, queryapi.NewGraphHandler(store))))
 	return mux
 }
