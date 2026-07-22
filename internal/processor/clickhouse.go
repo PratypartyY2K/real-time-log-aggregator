@@ -11,6 +11,7 @@ import (
 	"time"
 
 	commonclickhouse "github.com/PratypartyY2K/real-time-log-aggregator/internal/clickhouse"
+	"github.com/PratypartyY2K/real-time-log-aggregator/internal/logging"
 )
 
 type LogWriter interface {
@@ -72,6 +73,7 @@ func (w *ClickHouseWriter) AlreadyProcessed(ctx context.Context, tenantID uint64
 		return false, fmt.Errorf("build clickhouse exists request: %w", err)
 	}
 	req.Header.Set("Content-Type", "text/plain; charset=utf-8")
+	logging.PropagateContext(ctx, req.Header)
 
 	resp, err := w.client.Do(req)
 	if err != nil {
@@ -132,6 +134,7 @@ func (w *ClickHouseWriter) WriteBatch(ctx context.Context, records []NormalizedL
 		return fmt.Errorf("build clickhouse request: %w", err)
 	}
 	req.Header.Set("Content-Type", "text/plain; charset=utf-8")
+	logging.PropagateContext(ctx, req.Header)
 
 	resp, err := w.client.Do(req)
 	if err != nil {

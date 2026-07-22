@@ -338,6 +338,33 @@ func TestNormalizeBatchNormalizesRecords(t *testing.T) {
 	}
 }
 
+func TestNormalizeBatchUsesBatchTraceIDWhenRecordOmitsIt(t *testing.T) {
+	batch := contracts.LogsRawEvent{
+		SchemaVersion: contracts.LogsRawSchemaVersion,
+		RequestID:     "req-123",
+		TraceID:       "0af7651916cd43dd8448eb211c80319c",
+		Fingerprint:   "req-123",
+		ReceivedAt:    "2026-07-09T20:12:07Z",
+		TenantID:      42,
+		Service:       "checkout",
+		Env:           "prod",
+		Source:        "app",
+		Logs: []contracts.LogsRawRecord{{
+			Timestamp: "2026-07-09T20:12:07Z",
+			Level:     "info",
+			Message:   "request completed",
+		}},
+	}
+
+	records, err := normalizeBatch(batch)
+	if err != nil {
+		t.Fatalf("normalize batch: %v", err)
+	}
+	if got := records[0].TraceID; got != batch.TraceID {
+		t.Fatalf("expected inherited trace id %q, got %q", batch.TraceID, got)
+	}
+}
+
 func TestNormalizeBatchFallsBackToReceivedAtForMissingTimestamp(t *testing.T) {
 	batch := contracts.LogsRawEvent{
 		SchemaVersion: contracts.LogsRawSchemaVersion,

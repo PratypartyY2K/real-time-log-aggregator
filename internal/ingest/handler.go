@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/PratypartyY2K/real-time-log-aggregator/internal/contracts"
+	"github.com/PratypartyY2K/real-time-log-aggregator/internal/logging"
 )
 
 const apiKeyHeader = "X-API-Key"
@@ -227,6 +228,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	requestID := batchFingerprint(authz.TenantID, req)
 	event := toLogsRawEvent(requestID, time.Now().UTC().Format(time.RFC3339Nano), authz.TenantID, req)
+	event.CorrelationID = logging.RequestIDFromContext(r.Context())
+	event.TraceID = logging.TraceIDFromContext(r.Context())
 	if err := h.publisher.Publish(r.Context(), event); err != nil {
 		writeError(w, http.StatusServiceUnavailable, "failed to queue logs")
 		return

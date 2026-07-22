@@ -11,6 +11,7 @@ import (
 	"github.com/PratypartyY2K/real-time-log-aggregator/internal/app"
 	"github.com/PratypartyY2K/real-time-log-aggregator/internal/config"
 	"github.com/PratypartyY2K/real-time-log-aggregator/internal/contracts"
+	"github.com/PratypartyY2K/real-time-log-aggregator/internal/logging"
 	"github.com/PratypartyY2K/real-time-log-aggregator/internal/stream"
 )
 
@@ -67,6 +68,8 @@ func handleBatch(ctx context.Context, logger app.Logger, writer LogWriter, ruleS
 	if err := batch.Validate(); err != nil {
 		return stream.MarkPoisonBatch(fmt.Errorf("invalid logs.raw event: %w", err))
 	}
+	ctx = logging.WithRequestID(ctx, batch.CorrelationID)
+	ctx = logging.WithTraceID(ctx, batch.TraceID)
 
 	normalized, err := normalizeBatch(batch)
 	if err != nil {
@@ -125,6 +128,8 @@ func handleBatch(ctx context.Context, logger app.Logger, writer LogWriter, ruleS
 	logger.Info(
 		"processor persisted batch",
 		"request_id", batch.RequestID,
+		"correlation_id", batch.CorrelationID,
+		"trace_id", batch.TraceID,
 		"tenant_id", batch.TenantID,
 		"received_at", batch.ReceivedAt,
 		"schema_version", batch.SchemaVersion,

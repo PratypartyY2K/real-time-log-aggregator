@@ -7,6 +7,8 @@ const LogsRawSchemaVersion = "logs.raw.v1"
 type LogsRawEvent struct {
 	SchemaVersion string          `json:"schema_version"`
 	RequestID     string          `json:"request_id"`
+	CorrelationID string          `json:"correlation_id,omitempty"`
+	TraceID       string          `json:"trace_id,omitempty"`
 	Fingerprint   string          `json:"fingerprint"`
 	ReceivedAt    string          `json:"received_at"`
 	TenantID      uint64          `json:"tenant_id"`

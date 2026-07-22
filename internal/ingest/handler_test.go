@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/PratypartyY2K/real-time-log-aggregator/internal/contracts"
+	"github.com/PratypartyY2K/real-time-log-aggregator/internal/logging"
 )
 
 func TestHandlerRejectsMissingAPIKey(t *testing.T) {
@@ -43,6 +44,7 @@ func TestHandlerAcceptsValidBatch(t *testing.T) {
 		]
 	}`
 	req := httptest.NewRequest(http.MethodPost, "/v1/logs", bytes.NewBufferString(body))
+	req = req.WithContext(logging.WithTraceID(logging.WithRequestID(req.Context(), "http-req-123"), "0af7651916cd43dd8448eb211c80319c"))
 	req.Header.Set(apiKeyHeader, "local-dev-key")
 	rec := httptest.NewRecorder()
 
@@ -71,6 +73,9 @@ func TestHandlerAcceptsValidBatch(t *testing.T) {
 	}
 	if publisher.batch.RequestID != publisher.batch.Fingerprint {
 		t.Fatalf("expected request id and fingerprint to match, got %q and %q", publisher.batch.RequestID, publisher.batch.Fingerprint)
+	}
+	if publisher.batch.CorrelationID != "http-req-123" || publisher.batch.TraceID != "0af7651916cd43dd8448eb211c80319c" {
+		t.Fatalf("expected propagated correlation context, got correlation_id=%q trace_id=%q", publisher.batch.CorrelationID, publisher.batch.TraceID)
 	}
 	if publisher.batch.SchemaVersion != contracts.LogsRawSchemaVersion {
 		t.Fatalf("expected schema version %q, got %q", contracts.LogsRawSchemaVersion, publisher.batch.SchemaVersion)

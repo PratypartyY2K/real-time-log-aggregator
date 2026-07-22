@@ -40,7 +40,7 @@ func normalizeBatch(batch contracts.LogsRawEvent) ([]NormalizedLogRecord, error)
 
 	records := make([]NormalizedLogRecord, 0, len(batch.Logs))
 	for _, record := range batch.Logs {
-		normalized, err := normalizeRecord(batch.RequestID, batch.TenantID, receivedAt, service, environment, source, record)
+		normalized, err := normalizeRecord(batch.RequestID, batch.TraceID, batch.TenantID, receivedAt, service, environment, source, record)
 		if err != nil {
 			return nil, err
 		}
@@ -52,6 +52,7 @@ func normalizeBatch(batch contracts.LogsRawEvent) ([]NormalizedLogRecord, error)
 
 func normalizeRecord(
 	requestID string,
+	batchTraceID string,
 	tenantID uint64,
 	receivedAt time.Time,
 	service, environment, source string,
@@ -69,6 +70,9 @@ func normalizeRecord(
 	fields := cloneFields(record.Fields)
 	host := extractNormalizedField(fields, "host", "hostname")
 	traceID := extractNormalizedField(fields, "trace_id", "traceid", "trace-id")
+	if traceID == "" {
+		traceID = strings.TrimSpace(batchTraceID)
+	}
 	fieldsJSON, err := marshalFields(fields)
 	if err != nil {
 		return NormalizedLogRecord{}, fmt.Errorf("marshal log fields: %w", err)
