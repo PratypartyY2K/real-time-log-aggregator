@@ -2,6 +2,10 @@
 
 This document describes the HTTP surfaces implemented today. Transport details for the JetStream contract live in [jetstream.md](./jetstream.md). System-level behavior and tradeoffs live in [architecture.md](./architecture.md).
 
+## Correlation headers
+
+Every HTTP endpoint accepts `X-Request-Id` and the W3C `traceparent` header. If either context is absent or the trace context is invalid, the service generates it. Responses include `X-Request-Id` and `X-Trace-Id`, and downstream HTTP calls preserve both identifiers. The ingest pipeline also carries them across JetStream so processor activity and stored records remain connected to the originating request.
+
 ## `POST /v1/logs`
 
 Current behavior:
@@ -114,7 +118,7 @@ Current behavior:
 - derives the tenant scope from the active API key and always filters ClickHouse by that tenant
 - queries normalized logs from ClickHouse
 - requires `start` and `end` RFC3339 timestamps
-- supports optional exact-match `service` and `level` filters
+- supports optional exact-match `service`, `level`, and `trace_id` filters
 - supports optional `limit` or `page_size`, default `100`, max `1000`
 - supports optional `offset`, max `10000`
 - supports `stream=true` for newline-delimited JSON streaming
@@ -125,7 +129,7 @@ Current behavior:
 Example request:
 
 ```text
-/v1/logs?start=2026-07-13T17:00:00Z&end=2026-07-13T19:00:00Z&service=checkout&level=error&limit=100
+/v1/logs?start=2026-07-13T17:00:00Z&end=2026-07-13T19:00:00Z&trace_id=trace-123&limit=100
 ```
 
 Example response:
@@ -161,7 +165,7 @@ Validation rules:
 - `end` is required
 - `start` must be before `end`
 - the requested time range cannot exceed `7` days
-- `service` and `level` accept only safe tag characters
+- `service`, `level`, and `trace_id` accept only safe tag characters
 - `limit` and `page_size` must be positive integers and are capped at `1000`
 - `offset` must be a non-negative integer and cannot exceed `10000`
 
