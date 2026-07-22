@@ -34,12 +34,13 @@ func Run(ctx context.Context, logger app.Logger, cfg config.Config, metrics *Met
 
 	writer := NewClickHouseWriter(cfg.ClickHouseDSN)
 	dispatcher := alerts.NewLogDispatcher(logger)
+	ruleEngine := alerts.NewEngine()
 
 	logger.Info("processor consumer started", "stream", cfg.NATSStream, "subject", cfg.NATSSubject, "durable", cfg.NATSDurable, "replay_mode", cfg.NATSReplayMode)
 
 	return consumer.Consume(ctx, func(ctx context.Context, batch contracts.LogsRawEvent) error {
 		start := time.Now()
-		err := handleBatch(ctx, logger, writer, ruleStore, dispatcher, alertMetrics, batch)
+		err := handleBatchWithEvaluator(ctx, logger, writer, ruleStore, dispatcher, alertMetrics, ruleEngine.Evaluate, batch)
 		result := resultSuccess
 		if err != nil {
 			result = resultRetryable
@@ -65,6 +66,12 @@ type AlertMetrics interface {
 }
 
 func handleBatch(ctx context.Context, logger app.Logger, writer LogWriter, ruleStore AlertRuleStore, dispatcher alerts.NotificationDispatcher, alertMetrics AlertMetrics, batch contracts.LogsRawEvent) error {
+	return handleBatchWithEvaluator(ctx, logger, writer, ruleStore, dispatcher, alertMetrics, alerts.Evaluate, batch)
+}
+
+type ruleEvaluator func(alerts.Rule, []alerts.Record) ([]alerts.Trigger, error)
+
+func handleBatchWithEvaluator(ctx context.Context, logger app.Logger, writer LogWriter, ruleStore AlertRuleStore, dispatcher alerts.NotificationDispatcher, alertMetrics AlertMetrics, evaluator ruleEvaluator, batch contracts.LogsRawEvent) error {
 	if err := batch.Validate(); err != nil {
 		return stream.MarkPoisonBatch(fmt.Errorf("invalid logs.raw event: %w", err))
 	}
@@ -95,7 +102,7 @@ func handleBatch(ctx context.Context, logger app.Logger, writer LogWriter, ruleS
 	if err != nil {
 		return fmt.Errorf("load alert rules: %w", err)
 	}
-	triggers, err := evaluateAlertRules(rules, normalized)
+	triggers, err := evaluateAlertRules(rules, normalized, evaluator)
 	if err != nil {
 		return fmt.Errorf("evaluate alert rules: %w", err)
 	}
@@ -122,6 +129,9 @@ func handleBatch(ctx context.Context, logger app.Logger, writer LogWriter, ruleS
 			"status", change.Status,
 			"event_type", change.EventType,
 			"match_count", change.MatchCount,
+			"metric_value", change.MetricValue,
+			"threshold", change.Threshold,
+			"window_seconds", change.WindowSeconds,
 		)
 	}
 
@@ -153,7 +163,11 @@ func loadAlertRules(ctx context.Context, store AlertRuleStore, batch contracts.L
 	return store.LoadActiveRules(ctx, batch.TenantID, batch.Service, batch.Env)
 }
 
-func evaluateAlertRules(rules []alerts.Rule, records []NormalizedLogRecord) ([]alerts.Trigger, error) {
+func evaluateAlertRules(rules []alerts.Rule, records []NormalizedLogRecord, evaluators ...ruleEvaluator) ([]alerts.Trigger, error) {
+	evaluator := ruleEvaluator(alerts.Evaluate)
+	if len(evaluators) > 0 && evaluators[0] != nil {
+		evaluator = evaluators[0]
+	}
 	alertRecords := make([]alerts.Record, 0, len(records))
 	for _, record := range records {
 		fields := map[string]any{}
@@ -163,24 +177,25 @@ func evaluateAlertRules(rules []alerts.Rule, records []NormalizedLogRecord) ([]a
 			}
 		}
 		alertRecords = append(alertRecords, alerts.Record{
-			Timestamp:   record.Timestamp,
-			TenantID:    record.TenantID,
-			Service:     record.Service,
-			Environment: record.Environment,
-			Source:      record.Source,
-			Host:        record.Host,
-			Level:       record.Level,
-			TraceID:     record.TraceID,
-			Fingerprint: record.Fingerprint,
-			Message:     record.Message,
-			Fields:      fields,
-			IngestID:    record.IngestID,
+			Timestamp:    record.Timestamp,
+			TenantID:     record.TenantID,
+			Service:      record.Service,
+			Environment:  record.Environment,
+			Source:       record.Source,
+			Host:         record.Host,
+			Level:        record.Level,
+			TraceID:      record.TraceID,
+			Fingerprint:  record.Fingerprint,
+			Message:      record.Message,
+			Fields:       fields,
+			IngestID:     record.IngestID,
+			RawSizeBytes: record.RawSizeBytes,
 		})
 	}
 
 	triggers := make([]alerts.Trigger, 0)
 	for _, rule := range rules {
-		ruleTriggers, err := alerts.Evaluate(rule, alertRecords)
+		ruleTriggers, err := evaluator(rule, alertRecords)
 		if err != nil {
 			return nil, fmt.Errorf("rule %d: %w", rule.ID, err)
 		}
