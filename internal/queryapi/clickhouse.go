@@ -249,6 +249,49 @@ func (s *ClickHouseStore) QueryAnalytics(ctx context.Context, query AnalyticsQue
 	return points, nil
 }
 
+func (s *ClickHouseStore) QueryGraphRecords(ctx context.Context, query GraphQuery) ([]GraphRecord, error) {
+	if s == nil || s.url == "" {
+		return nil, fmt.Errorf("clickhouse store is not configured")
+	}
+	if query.TenantID == 0 {
+		return nil, fmt.Errorf("tenant id is required")
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.url, strings.NewReader(buildGraphQuery(query)))
+	if err != nil {
+		return nil, fmt.Errorf("build clickhouse graph request: %w", err)
+	}
+	req.Header.Set("Content-Type", "text/plain; charset=utf-8")
+	logging.PropagateContext(ctx, req.Header)
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("query clickhouse graph records: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= http.StatusBadRequest {
+		payload, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return nil, fmt.Errorf("clickhouse graph query failed with status %s: %s", resp.Status, strings.TrimSpace(string(payload)))
+	}
+	var result clickHouseQueryResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("decode clickhouse graph response: %w", err)
+	}
+	records := make([]GraphRecord, 0, len(result.Data))
+	for _, row := range result.Data {
+		timestamp, err := time.Parse(time.RFC3339Nano, row.Timestamp)
+		if err != nil {
+			return nil, fmt.Errorf("parse graph timestamp: %w", err)
+		}
+		fields := map[string]any{}
+		if strings.TrimSpace(row.FieldsJSON) != "" {
+			if err := json.Unmarshal([]byte(row.FieldsJSON), &fields); err != nil {
+				return nil, fmt.Errorf("decode graph fields: %w", err)
+			}
+		}
+		records = append(records, GraphRecord{Timestamp: timestamp.UTC(), Service: row.Service, Level: row.Level, TraceID: row.TraceID, IngestID: row.IngestID, Fields: fields})
+	}
+	return records, nil
+}
+
 func buildLogsQuery(filter QueryFilter) string {
 	var query bytes.Buffer
 	query.WriteString("SELECT ")
@@ -289,6 +332,36 @@ func buildLogsQuery(filter QueryFilter) string {
 func buildLogsStreamQuery(filter QueryFilter) string {
 	query := buildLogsQuery(filter)
 	return strings.TrimSuffix(query, "FORMAT JSON") + "FORMAT JSONEachRow"
+}
+
+func buildGraphQuery(query GraphQuery) string {
+	var builder strings.Builder
+	builder.WriteString("SELECT timestamp, service, level, trace_id, fields_json, ingest_id FROM logs WHERE tenant_id = ")
+	builder.WriteString(strconv.FormatUint(query.TenantID, 10))
+	builder.WriteString(" AND timestamp >= toDateTime64(")
+	builder.WriteString(quoteLiteral(query.Start.UTC().Format(time.RFC3339Nano)))
+	builder.WriteString(", 3, 'UTC') AND timestamp < toDateTime64(")
+	builder.WriteString(quoteLiteral(query.End.UTC().Format(time.RFC3339Nano)))
+	builder.WriteString(", 3, 'UTC') ")
+	if query.TraceID != "" {
+		builder.WriteString("AND trace_id = ")
+		builder.WriteString(quoteLiteral(query.TraceID))
+		builder.WriteByte(' ')
+	}
+	if query.SessionID != "" {
+		builder.WriteString("AND JSONExtractString(fields_json, 'session_id') = ")
+		builder.WriteString(quoteLiteral(query.SessionID))
+		builder.WriteByte(' ')
+	}
+	if query.UserID != "" {
+		builder.WriteString("AND JSONExtractString(fields_json, 'user_id') = ")
+		builder.WriteString(quoteLiteral(query.UserID))
+		builder.WriteByte(' ')
+	}
+	builder.WriteString("ORDER BY timestamp ASC LIMIT ")
+	builder.WriteString(strconv.Itoa(query.Limit + 1))
+	builder.WriteString(" SETTINGS optimize_skip_unused_shards = 1, skip_unavailable_shards = 1 FORMAT JSON")
+	return builder.String()
 }
 
 func buildAnalyticsQuery(query AnalyticsQuery) string {

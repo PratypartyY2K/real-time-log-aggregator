@@ -81,6 +81,25 @@ func TestClickHouseStoreQueriesLogs(t *testing.T) {
 	}
 }
 
+func TestClickHouseStoreQueriesGraphRecords(t *testing.T) {
+	var requestBody string
+	store := &ClickHouseStore{url: "http://clickhouse.local", client: &http.Client{Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		payload, _ := io.ReadAll(r.Body)
+		requestBody = string(payload)
+		return &http.Response{StatusCode: http.StatusOK, Status: "200 OK", Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"data":[{"timestamp":"2026-07-22T10:00:00Z","service":"gateway","level":"error","trace_id":"trace-1","fields_json":"{\"session_id\":\"session-1\"}","ingest_id":"ingest-1"}]}`))}, nil
+	})}}
+	records, err := store.QueryGraphRecords(context.Background(), GraphQuery{TenantID: 7, Start: time.Date(2026, 7, 22, 10, 0, 0, 0, time.UTC), End: time.Date(2026, 7, 22, 11, 0, 0, 0, time.UTC), SessionID: "session-1", UserID: "user@example.com", Limit: 5000})
+	if err != nil {
+		t.Fatalf("query graph records: %v", err)
+	}
+	if len(records) != 1 || records[0].Fields["session_id"] != "session-1" {
+		t.Fatalf("unexpected records: %+v", records)
+	}
+	if !strings.Contains(requestBody, "JSONExtractString(fields_json, 'session_id') = 'session-1'") || !strings.Contains(requestBody, "JSONExtractString(fields_json, 'user_id') = 'user@example.com'") {
+		t.Fatalf("expected graph filters, got %q", requestBody)
+	}
+}
+
 func TestClickHouseStoreStreamsLogs(t *testing.T) {
 	var requestBody string
 	store := &ClickHouseStore{
