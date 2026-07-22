@@ -149,6 +149,38 @@ Use `logagg_queue_consumer_pending` as the primary pressure signal. Scale
 processors when lag remains elevated and the storage dependencies are healthy;
 scale down only after backlog remains near zero.
 
+## Alert rule evaluation
+
+The processor evaluates active rules over event-time sliding windows. Windows are retained in each processor process and keyed by tenant and rule. Count and pattern rules remain supported; metric rules use these configurations:
+
+- `rate_threshold` compares matching records per second with `threshold`. `window_seconds` must be positive.
+- `percentile_threshold` compares a percentile with `threshold`. Set `filter_json.value_field` to `raw_size_bytes` or `field.<name>`, and set `filter_json.percentile` between 0 and 100.
+- `group_by` creates independently evaluated groups for every rule type.
+- filters such as `level`, `source`, `host`, `trace_id`, `message_contains`, and `field_equals` are applied before aggregation.
+
+Example rate rule (at least 2 errors/second over five minutes):
+
+```sql
+INSERT INTO alert_rules
+    (tenant_id, name, rule_type, severity, filter_json, group_by, window_seconds, threshold)
+VALUES
+    (1, 'service error rate', 'rate_threshold', 'high',
+     '{"level":"error"}', '["service"]', 300, 2);
+```
+
+Example latency rule (p95 duration at least 500 ms):
+
+```sql
+INSERT INTO alert_rules
+    (tenant_id, name, rule_type, severity, filter_json, group_by, window_seconds, threshold)
+VALUES
+    (1, 'service latency p95', 'percentile_threshold', 'critical',
+     '{"value_field":"field.duration_ms","percentile":95}',
+     '["service"]', 300, 500);
+```
+
+Triggered event payloads include `metric_value`, `threshold`, `window_seconds`, and, for percentile rules, `percentile` and `value_field`. Sliding-window samples are currently process-local; restarting or independently scaling processors resets or partitions evaluation history.
+
 ## Observability
 
 Prometheus-compatible metrics are exposed at `/metrics`. Grafana is provisioned

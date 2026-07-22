@@ -32,7 +32,7 @@ production HA topology because shards and Keeper are not replicated.
 - Normalize timestamps, tags, trace IDs, hosts, fields, and fingerprints.
 - Query raw logs and time-bucketed/grouped analytics.
 - Infer tenant-scoped service dependencies, error propagation, and session/request flows from correlated logs.
-- Evaluate threshold and pattern rules and persist alert lifecycle state.
+- Evaluate count, pattern, rate, and percentile rules over event-time windows and persist alert lifecycle state.
 - Retry transient failures and isolate poison messages in a DLQ.
 - Expose health, readiness, metrics, and partial-result status.
 
@@ -454,6 +454,11 @@ stateDiagram-v2
 
 The dedupe key is derived from rule scope and configured grouping fields. Alert
 events are append-oriented, while the instance row represents current state.
+Rate rules compare matching records per second over `window_seconds`; percentile
+rules calculate a linearly interpolated percentile for `raw_size_bytes` or a
+numeric structured field. The processor retains sliding-window samples in
+memory per tenant and rule, so evaluation history is process-local and resets
+on restart; durable/distributed window state remains an evolution item.
 
 ## 7. Contracts and delivery semantics
 
