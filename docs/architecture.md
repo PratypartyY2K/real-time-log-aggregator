@@ -31,6 +31,7 @@ production HA topology because shards and Keeper are not replicated.
 - Preserve accepted batches in a durable replayable stream.
 - Normalize timestamps, tags, trace IDs, hosts, fields, and fingerprints.
 - Query raw logs and time-bucketed/grouped analytics.
+- Infer tenant-scoped service dependencies, error propagation, and session/request flows from correlated logs.
 - Evaluate threshold and pattern rules and persist alert lifecycle state.
 - Retry transient failures and isolate poison messages in a DLQ.
 - Expose health, readiness, metrics, and partial-result status.

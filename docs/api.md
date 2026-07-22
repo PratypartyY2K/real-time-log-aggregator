@@ -179,6 +179,27 @@ When `stream=true`, the response content type is `application/x-ndjson` and each
 Completeness is reported through `X-Logagg-Partial-Results`; unavailable shard
 names are listed in `X-Logagg-Unavailable-Shards`.
 
+## `GET /v1/graph`
+
+Builds a tenant-scoped service dependency graph and correlated flow summaries from normalized logs.
+
+- requires `start` and `end`; the window is capped at 24 hours
+- supports optional `trace_id`, `session_id`, and `user_id` filters
+- supports up to 10,000 source records per request; `truncated` reports when the limit was reached
+- creates explicit edges from `upstream_service`, `caller_service`, `downstream_service`, `peer_service`, and `target_service` fields
+- infers additional edges from ordered service transitions in the same session, request, or trace
+- groups flows by `session_id`, then `request_id`/`correlation_id`, then `trace_id`, and finally `user_id`
+- reports per-node log, error, and flow counts
+- reports per-edge affected-flow and propagated-error counts; a propagated error means consecutive services in a flow both emitted error-level records
+
+Example:
+
+```text
+/v1/graph?start=2026-07-22T10:00:00Z&end=2026-07-22T11:00:00Z&session_id=session-123
+```
+
+The response contains `nodes`, `edges`, and `sessions`. Each group includes its correlation kind, user ID when available, trace IDs, participating services, time bounds, log count, and error count. User-only groups are lower-confidence flows because multiple requests by the same user inside the query window may be combined. Records without any supported correlation identifier contribute to service-node totals but cannot form an inferred flow.
+
 ## `GET /v1/analytics`
 
 Current behavior:
