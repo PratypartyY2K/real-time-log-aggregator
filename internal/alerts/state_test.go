@@ -2,9 +2,24 @@ package alerts
 
 import (
 	"database/sql"
+	"encoding/json"
 	"testing"
 	"time"
 )
+
+func TestBuildEventPayloadIncludesMetricEvaluation(t *testing.T) {
+	payload, err := buildEventPayload(StateChange{RuleID: 9, RuleName: "latency p95", MetricValue: 385, Threshold: 300, WindowSeconds: 300, Percentile: 95, ValueField: "field.duration_ms"})
+	if err != nil {
+		t.Fatalf("build payload: %v", err)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(payload, &decoded); err != nil {
+		t.Fatalf("decode payload: %v", err)
+	}
+	if decoded["metric_value"] != 385.0 || decoded["threshold"] != 300.0 || decoded["percentile"] != 95.0 || decoded["value_field"] != "field.duration_ms" {
+		t.Fatalf("unexpected metric payload: %+v", decoded)
+	}
+}
 
 func TestReconcileStateCreatesNewActiveInstance(t *testing.T) {
 	t.Parallel()

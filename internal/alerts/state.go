@@ -36,6 +36,11 @@ type StateChange struct {
 	Status          string
 	EventType       string
 	MatchCount      int
+	MetricValue     float64
+	Threshold       float64
+	WindowSeconds   int
+	Percentile      float64
+	ValueField      string
 	GroupKey        string
 	Group           map[string]string
 	AlertInstanceID int64
@@ -126,12 +131,17 @@ func reconcileState(rules []Rule, triggers []Trigger, instances []Instance, obse
 		triggered[key] = struct{}{}
 		instance, exists := instanceByKey[key]
 		change := StateChange{
-			RuleID:     trigger.RuleID,
-			RuleName:   trigger.RuleName,
-			DedupeKey:  trigger.GroupKey,
-			MatchCount: trigger.MatchCount,
-			GroupKey:   trigger.GroupKey,
-			Group:      trigger.Group,
+			RuleID:        trigger.RuleID,
+			RuleName:      trigger.RuleName,
+			DedupeKey:     trigger.GroupKey,
+			MatchCount:    trigger.MatchCount,
+			MetricValue:   trigger.MetricValue,
+			Threshold:     trigger.Threshold,
+			WindowSeconds: trigger.WindowSeconds,
+			Percentile:    trigger.Percentile,
+			ValueField:    trigger.ValueField,
+			GroupKey:      trigger.GroupKey,
+			Group:         trigger.Group,
 		}
 
 		if !exists {
@@ -350,14 +360,23 @@ VALUES ($1, $2, $3::jsonb)
 
 func buildEventPayload(change StateChange) (json.RawMessage, error) {
 	payload := map[string]any{
-		"rule_id":     change.RuleID,
-		"rule_name":   change.RuleName,
-		"dedupe_key":  change.DedupeKey,
-		"status":      change.Status,
-		"event_type":  change.EventType,
-		"match_count": change.MatchCount,
-		"group_key":   change.GroupKey,
-		"group":       change.Group,
+		"rule_id":        change.RuleID,
+		"rule_name":      change.RuleName,
+		"dedupe_key":     change.DedupeKey,
+		"status":         change.Status,
+		"event_type":     change.EventType,
+		"match_count":    change.MatchCount,
+		"metric_value":   change.MetricValue,
+		"threshold":      change.Threshold,
+		"window_seconds": change.WindowSeconds,
+		"group_key":      change.GroupKey,
+		"group":          change.Group,
+	}
+	if change.Percentile > 0 {
+		payload["percentile"] = change.Percentile
+	}
+	if change.ValueField != "" {
+		payload["value_field"] = change.ValueField
 	}
 	data, err := json.Marshal(payload)
 	if err != nil {
