@@ -92,6 +92,23 @@ func TestRoutesExposeGraphEndpoint(t *testing.T) {
 	}
 }
 
+func TestRoutesExposeAlertHistoryEndpoints(t *testing.T) {
+	handler := routes("query-api", nil, stubTenantResolver{}, &stubLogStore{})
+	for _, path := range []string{
+		"/v1/alerts/history?start=2026-07-22T10:00:00Z&end=2026-07-22T11:00:00Z",
+		"/v1/alerts/audit?start=2026-07-22T10:00:00Z&end=2026-07-22T11:00:00Z",
+		"/v1/alerts/deliveries?start=2026-07-22T10:00:00Z&end=2026-07-22T11:00:00Z",
+	} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req.Header.Set("X-API-Key", "test-key")
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusServiceUnavailable {
+			t.Fatalf("expected wired endpoint %s to reach nil database store and return 503, got %d", path, rec.Code)
+		}
+	}
+}
+
 func TestRoutesExposePrometheusMetrics(t *testing.T) {
 	handler := routes("query-api", nil, stubTenantResolver{}, &stubLogStore{})
 

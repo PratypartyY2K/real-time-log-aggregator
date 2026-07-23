@@ -46,6 +46,7 @@ func routes(serviceName string, db *sql.DB, resolver queryapi.TenantResolver, st
 		checks = append([]readiness.Checker{readiness.PostgresChecker("postgres", db)}, checks...)
 	}
 	readyHandler := readiness.NewHandler(checks...)
+	alertHistoryStore := queryapi.NewPostgresAlertHistoryStore(db)
 
 	mux := http.NewServeMux()
 	mux.Handle("/metrics", metricsHandler)
@@ -66,5 +67,8 @@ func routes(serviceName string, db *sql.DB, resolver queryapi.TenantResolver, st
 	mux.Handle("/v1/logs", httpMetrics.Middleware("/v1/logs", queryapi.TenantAuthMiddleware(resolver, queryapi.NewHandler(store))))
 	mux.Handle("/v1/query", httpMetrics.Middleware("/v1/query", queryapi.TenantAuthMiddleware(resolver, queryapi.NewQueryDSLHandler(store))))
 	mux.Handle("/v1/graph", httpMetrics.Middleware("/v1/graph", queryapi.TenantAuthMiddleware(resolver, queryapi.NewGraphHandler(store))))
+	mux.Handle("/v1/alerts/history", httpMetrics.Middleware("/v1/alerts/history", queryapi.TenantAuthMiddleware(resolver, queryapi.NewAlertHistoryHandler(alertHistoryStore))))
+	mux.Handle("/v1/alerts/audit", httpMetrics.Middleware("/v1/alerts/audit", queryapi.TenantAuthMiddleware(resolver, queryapi.NewAlertAuditHandler(alertHistoryStore))))
+	mux.Handle("/v1/alerts/deliveries", httpMetrics.Middleware("/v1/alerts/deliveries", queryapi.TenantAuthMiddleware(resolver, queryapi.NewNotificationDeliveryHistoryHandler(alertHistoryStore))))
 	return mux
 }
