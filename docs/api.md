@@ -200,6 +200,38 @@ Example:
 
 The response contains `nodes`, `edges`, and `sessions`. Each group includes its correlation kind, user ID when available, trace IDs, participating services, time bounds, log count, and error count. User-only groups are lower-confidence flows because multiple requests by the same user inside the query window may be combined. Records without any supported correlation identifier contribute to service-node totals but cannot form an inferred flow.
 
+## Alert history and delivery tracking
+
+All alert delivery read APIs require `X-API-Key`, derive tenant scope from the
+key, require `start` and `end` RFC3339 timestamps, and cap the requested window
+at 90 days. They support `rule_id`, `limit`, and `offset`.
+
+### `GET /v1/alerts/history`
+
+Returns alert instances with rule metadata, dedupe key, current status, first
+and latest firing times, and resolution time. The optional `status` filter
+selects active or resolved instances.
+
+### `GET /v1/alerts/deliveries`
+
+Returns the current state of each notification delivery, including channel,
+target, `pending`/`processing`/`retrying`/`sent`/`failed` status, attempt count,
+maximum attempts, next retry time, last error, and sent time. The optional
+`status` filter selects a delivery state.
+
+### `GET /v1/alerts/audit`
+
+Returns an append-only timeline combining alert lifecycle events,
+`notification_enqueued` events, and immutable `notification_attempt` entries.
+Attempt entries include the delivery ID, attempt number, result, error, channel,
+and target. The optional `event_type` filter narrows the timeline.
+
+Example:
+
+```text
+/v1/alerts/audit?start=2026-07-22T00:00:00Z&end=2026-07-23T00:00:00Z&event_type=notification_attempt
+```
+
 ## `GET /v1/analytics`
 
 Current behavior:

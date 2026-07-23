@@ -191,7 +191,8 @@ sequenceDiagram
         W->>W: Evaluate rules
         W->>CH: Synchronous distributed insert
         W->>PG: Reconcile alert state and enqueue deliveries
-        W->>D: Dispatch due notifications
+    W->>PG: Transactionally enqueue immutable notification deliveries
+    W->>D: Claim and dispatch due notifications outside the transaction
         alt all required work succeeds
             W->>J: ACK
         else transient dependency failure
@@ -386,6 +387,7 @@ erDiagram
     ALERT_RULES ||--o{ ALERT_INSTANCES : creates
     ALERT_INSTANCES ||--o{ ALERT_EVENTS : records
     ALERT_INSTANCES ||--o{ NOTIFICATION_DELIVERIES : queues
+    NOTIFICATION_DELIVERIES ||--o{ NOTIFICATION_DELIVERY_ATTEMPTS : audits
     TENANTS ||--o{ SAVED_QUERIES : owns
 
     TENANTS {
@@ -430,8 +432,20 @@ erDiagram
     NOTIFICATION_DELIVERIES {
         bigint id PK
         bigint alert_instance_id FK
+        text channel
         text status
         int attempt_count
+        int max_attempts
+        jsonb payload_json
+        timestamptz available_at
+    }
+    NOTIFICATION_DELIVERY_ATTEMPTS {
+        bigint id PK
+        bigint delivery_id FK
+        int attempt_number
+        text status
+        text error
+        timestamptz completed_at
     }
     SAVED_QUERIES {
         bigint id PK
@@ -604,7 +618,7 @@ See [operations.md](./operations.md) for concrete metrics and failure drills.
 2. Introduce explicit tenant placement or consistent-hash virtual nodes before
    online shard expansion.
 3. Replace process-local rate limiting with a distributed token bucket.
-4. Move notifications behind a transactional outbox and dedicated workers.
+4. Split the delivery worker into an independently scalable service when notification volume requires it.
 5. Add a processed-batch ledger to tighten cross-store replay semantics.
 6. Add service/environment authorization and audit events to read APIs.
 7. Add archive/restore workflows once retention and cold-storage requirements

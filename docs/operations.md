@@ -181,6 +181,33 @@ VALUES
 
 Triggered event payloads include `metric_value`, `threshold`, `window_seconds`, and, for percentile rules, `percentile` and `value_field`. Sliding-window samples are currently process-local; restarting or independently scaling processors resets or partitions evaluation history.
 
+### Notification delivery worker
+
+Alert transitions transactionally enqueue immutable notification payloads in
+Postgres. The processor runs a dedicated in-process delivery worker. Workers
+claim due rows with `FOR UPDATE SKIP LOCKED`,
+release the database transaction before dispatch, and recover claims whose
+lease expires.
+
+Delivery failures use exponential backoff with stable jitter. Every attempt is
+recorded in `notification_delivery_attempts`; the delivery row tracks current
+status, attempt count, next retry, last error, and sent time.
+
+Configuration:
+
+- `NOTIFICATION_POLL_INTERVAL` (default `5s`)
+- `NOTIFICATION_RETRY_BASE` (default `30s`)
+- `NOTIFICATION_RETRY_MAX` (default `30m`)
+- `NOTIFICATION_LEASE_DURATION` (default `2m`)
+- `NOTIFICATION_MAX_ATTEMPTS` (default `5`)
+- `NOTIFICATION_BATCH_SIZE` (default `50`, capped at `500`)
+
+Run `go run ./cmd/postgres-migrate` before deploying this version to apply the
+delivery audit migration. Delivery remains at-least-once: a process crash after
+an external target accepts a message but before Postgres records success can
+cause a duplicate send. Future channel implementations should therefore attach
+the delivery ID as an idempotency key where the provider supports it.
+
 ## Observability
 
 Prometheus-compatible metrics are exposed at `/metrics`. Grafana is provisioned
