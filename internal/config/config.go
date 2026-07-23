@@ -28,6 +28,12 @@ type Config struct {
 	PostgresDSN               string
 	ClickHouseDSN             string
 	ClickHouseShardDSNs       []string
+	NotificationPollInterval  time.Duration
+	NotificationRetryBase     time.Duration
+	NotificationRetryMax      time.Duration
+	NotificationLeaseDuration time.Duration
+	NotificationMaxAttempts   int
+	NotificationBatchSize     int
 }
 
 func Load(defaultServiceName, defaultHTTPAddr string) Config {
@@ -52,6 +58,12 @@ func Load(defaultServiceName, defaultHTTPAddr string) Config {
 		PostgresDSN:               envOrDefault("POSTGRES_DSN", "postgres://logagg:logagg@localhost:55432/logagg?sslmode=disable"),
 		ClickHouseDSN:             envOrDefault("CLICKHOUSE_DSN", "http://localhost:8123"),
 		ClickHouseShardDSNs:       envOrDefaultList("CLICKHOUSE_SHARD_DSNS", []string{"http://localhost:8123", "http://localhost:8124"}),
+		NotificationPollInterval:  envOrDefaultDuration("NOTIFICATION_POLL_INTERVAL", 5*time.Second),
+		NotificationRetryBase:     envOrDefaultDuration("NOTIFICATION_RETRY_BASE", 30*time.Second),
+		NotificationRetryMax:      envOrDefaultDuration("NOTIFICATION_RETRY_MAX", 30*time.Minute),
+		NotificationLeaseDuration: envOrDefaultDuration("NOTIFICATION_LEASE_DURATION", 2*time.Minute),
+		NotificationMaxAttempts:   envOrDefaultInt("NOTIFICATION_MAX_ATTEMPTS", 5),
+		NotificationBatchSize:     envOrDefaultInt("NOTIFICATION_BATCH_SIZE", 50),
 	}
 }
 

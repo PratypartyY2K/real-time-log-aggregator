@@ -35,6 +35,16 @@ func Run(ctx context.Context, logger app.Logger, cfg config.Config, metrics *Met
 	writer := NewClickHouseWriter(cfg.ClickHouseDSN)
 	dispatcher := alerts.NewLogDispatcher(logger)
 	ruleEngine := alerts.NewEngine()
+	if deliveryStore, ok := ruleStore.(alerts.DeliveryBatchStore); ok {
+		go alerts.RunDeliveryWorker(ctx, logger, deliveryStore, dispatcher, alerts.DeliveryPolicy{
+			WorkerID:       alerts.NewDeliveryWorkerID(cfg.ServiceName),
+			MaxAttempts:    cfg.NotificationMaxAttempts,
+			BaseRetryDelay: cfg.NotificationRetryBase,
+			MaxRetryDelay:  cfg.NotificationRetryMax,
+			LeaseDuration:  cfg.NotificationLeaseDuration,
+			BatchSize:      cfg.NotificationBatchSize,
+		}, cfg.NotificationPollInterval)
+	}
 
 	logger.Info("processor consumer started", "stream", cfg.NATSStream, "subject", cfg.NATSSubject, "durable", cfg.NATSDurable, "replay_mode", cfg.NATSReplayMode)
 
@@ -116,8 +126,10 @@ func handleBatchWithEvaluator(ctx context.Context, logger app.Logger, writer Log
 	if alertMetrics != nil {
 		alertMetrics.ObserveStateChanges(stateChanges)
 	}
-	if err := dispatchDueNotifications(ctx, ruleStore, dispatcher, alertObservedAt(batch, normalized)); err != nil {
-		return fmt.Errorf("dispatch notifications: %w", err)
+	if _, handledByWorker := ruleStore.(alerts.DeliveryBatchStore); !handledByWorker {
+		if err := dispatchDueNotifications(ctx, ruleStore, dispatcher, alertObservedAt(batch, normalized)); err != nil {
+			return fmt.Errorf("dispatch notifications: %w", err)
+		}
 	}
 
 	for _, change := range stateChanges {
