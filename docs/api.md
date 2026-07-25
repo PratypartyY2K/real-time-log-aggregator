@@ -2,6 +2,10 @@
 
 This document describes the HTTP surfaces implemented today. Transport details for the JetStream contract live in [jetstream.md](./jetstream.md). System-level behavior and tradeoffs live in [architecture.md](./architecture.md).
 
+The machine-readable OpenAPI 3.1 contract is served by `query-api` at
+`GET /openapi.yaml` and stored at
+[`internal/queryapi/playground/openapi.yaml`](../internal/queryapi/playground/openapi.yaml).
+
 ## Correlation headers
 
 Every HTTP endpoint accepts `X-Request-Id` and the W3C `traceparent` header. If either context is absent or the trace context is invalid, the service generates it. Responses include `X-Request-Id` and `X-Trace-Id`, and downstream HTTP calls preserve both identifiers. The ingest pipeline also carries them across JetStream so processor activity and stored records remain connected to the originating request.

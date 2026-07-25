@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Logagg Query Playground</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <p class="eyebrow">LOGAGG / LOCAL TOOLING</p>
+        <h1>Query playground</h1>
+        <p class="lede">Inspect tenant-scoped logs without assembling URLs by hand.</p>
+      </div>
+      <nav>
+        <a href="/openapi.yaml">OpenAPI</a>
+        <a href="/v1/status">Status</a>
+      </nav>
+    </header>
+
+    <section class="workspace">
+      <form id="query-form">
+        <div class="form-heading">
+          <span>01</span>
+          <div>
+            <h2>Shape the query</h2>
+            <p>UTC time range is required. Filters are optional.</p>
+          </div>
+        </div>
+
+        <label class="full">
+          <span>API key</span>
+          <input id="api-key" name="api-key" type="password" value="local-dev-key" autocomplete="off" required>
+        </label>
+        <div class="two-col">
+          <label>
+            <span>Start</span>
+            <input id="start" name="start" type="datetime-local" step="1" required>
+          </label>
+          <label>
+            <span>End</span>
+            <input id="end" name="end" type="datetime-local" step="1" required>
+          </label>
+        </div>
+        <div class="two-col">
+          <label>
+            <span>Service</span>
+            <input id="service" name="service" placeholder="checkout">
+          </label>
+          <label>
+            <span>Level</span>
+            <select id="level" name="level">
+              <option value="">Any level</option>
+              <option>trace</option>
+              <option>debug</option>
+              <option>info</option>
+              <option>warn</option>
+              <option>error</option>
+              <option>fatal</option>
+            </select>
+          </label>
+        </div>
+        <div class="two-col">
+          <label>
+            <span>Trace ID</span>
+            <input id="trace-id" name="trace-id" placeholder="demo-trace-001">
+          </label>
+          <label>
+            <span>Limit</span>
+            <input id="limit" name="limit" type="number" min="1" max="1000" value="100">
+          </label>
+        </div>
+        <button type="submit"><span>Run query</span><kbd>⌘ ↵</kbd></button>
+      </form>
+
+      <section class="results" aria-live="polite">
+        <div class="results-heading">
+          <div>
+            <span>02</span>
+            <h2>Results</h2>
+          </div>
+          <p id="summary">Ready</p>
+        </div>
+        <div id="empty-state">
+          <div class="pulse"></div>
+          <p>Your tenant’s logs will appear here.</p>
+          <small>Try the checkout sample with an error-level filter.</small>
+        </div>
+        <div id="error" hidden></div>
+        <div id="log-list"></div>
+      </section>
+    </section>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>

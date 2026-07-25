@@ -74,6 +74,25 @@ go run ./cmd/processor
 go run ./cmd/query-api
 ```
 
+Open [http://localhost:8081/playground/](http://localhost:8081/playground/) for
+the query playground or download the live OpenAPI 3.1 contract from
+[http://localhost:8081/openapi.yaml](http://localhost:8081/openapi.yaml).
+
+The developer CLI supports ingestion from a JSON file and filtered queries:
+
+```bash
+go run ./cmd/logagg ingest -file examples/logs/checkout-errors.json
+go run ./cmd/logagg query \
+  -start 2026-07-25T09:00:00Z \
+  -end 2026-07-25T11:00:00Z \
+  -service checkout \
+  -level error
+```
+
+Set `LOGAGG_API_KEY` to avoid passing `-api-key`. Additional sample batches are
+available in [`examples/logs`](examples/logs), and `make cli` builds
+`bin/logagg`.
+
 The complete bootstrap procedure—including API-key seeding, migrations,
 configuration, health checks, load testing, and failure exercises—is in
 [docs/operations.md](docs/operations.md).
@@ -105,6 +124,7 @@ make docker-images
 - [Architecture and design](docs/architecture.md) — HLD, LLD, data flows, guarantees, scaling, and tradeoffs
 - [Operations guide](docs/operations.md) — local setup, configuration, migrations, load testing, and runbooks
 - [HTTP API](docs/api.md) — endpoint contracts and validation
+- [OpenAPI 3.1 contract](internal/queryapi/playground/openapi.yaml) — machine-readable ingest and query specification
 - [JetStream contract](docs/jetstream.md) — subjects, schemas, replay, and DLQ behavior
 - [Distributed ClickHouse](docs/distributed-clickhouse.md) — sharding, coordinator behavior, migration, and production topology
 

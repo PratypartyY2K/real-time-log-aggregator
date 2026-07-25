@@ -49,6 +49,11 @@ func routes(serviceName string, db *sql.DB, resolver queryapi.TenantResolver, st
 	alertHistoryStore := queryapi.NewPostgresAlertHistoryStore(db)
 
 	mux := http.NewServeMux()
+	mux.HandleFunc("/playground", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/playground/", http.StatusTemporaryRedirect)
+	})
+	mux.Handle("/playground/", queryapi.PlaygroundHandler())
+	mux.Handle("/openapi.yaml", queryapi.OpenAPIHandler())
 	mux.Handle("/metrics", metricsHandler)
 	mux.Handle("/healthz", httpMetrics.Middleware("/healthz", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
