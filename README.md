@@ -127,6 +127,7 @@ make docker-images
 - [OpenAPI 3.1 contract](internal/queryapi/playground/openapi.yaml) — machine-readable ingest and query specification
 - [JetStream contract](docs/jetstream.md) — subjects, schemas, replay, and DLQ behavior
 - [Distributed ClickHouse](docs/distributed-clickhouse.md) — sharding, coordinator behavior, migration, and production topology
+- [Kubernetes deployment](docs/kubernetes.md) — manifests, environment configuration, and secret management
 
 ## Current engineering boundaries
 

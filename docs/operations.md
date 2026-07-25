@@ -112,6 +112,10 @@ All services have local defaults in `internal/config/config.go`.
 `CLICKHOUSE_SHARD_DSNS` is comma-separated and defaults to the two local HTTP
 endpoints.
 
+Kubernetes maps non-sensitive variables through a ConfigMap and authenticated
+connection strings through a separately managed Secret. See the
+[Kubernetes deployment guide](kubernetes.md) for overlays and secret rotation.
+
 ## Load testing
 
 Burst ingestion sends short, concurrent spikes. Every request has unique log
