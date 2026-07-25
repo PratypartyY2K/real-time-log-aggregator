@@ -69,6 +69,19 @@ jobs:
       - name: Run end-to-end pipeline check
         run: make e2e-test
 
+  performance-tools:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Verify load profiles
+        run: make performance-test
+      - name: Smoke-test query benchmarks
+        run: go test ./internal/queryapi -run '^$' -bench BenchmarkBuildLogsQuery -benchtime=1x
+
   distributed-clickhouse:
     runs-on: ubuntu-latest
     timeout-minutes: 15
