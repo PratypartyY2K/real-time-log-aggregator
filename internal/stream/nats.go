@@ -19,21 +19,27 @@ type JetStreamPublisher struct {
 }
 
 type JetStreamConsumer struct {
-	sub        *nats.Subscription
-	dlq        *DLQPublisher
-	maxDeliver uint64
+	sub         *nats.Subscription
+	dlq         *DLQPublisher
+	dlqObserver DLQObserver
+	maxDeliver  uint64
+}
+
+type DLQObserver interface {
+	ObserveDLQ(reason, outcome string)
 }
 
 type ConsumerOptions struct {
-	URL        string
-	StreamName string
-	Subject    string
-	DLQSubject string
-	Durable    string
-	MaxDeliver int
-	ReplayMode string
-	ReplaySeq  uint64
-	ReplayTime string
+	URL         string
+	StreamName  string
+	Subject     string
+	DLQSubject  string
+	Durable     string
+	MaxDeliver  int
+	ReplayMode  string
+	ReplaySeq   uint64
+	ReplayTime  string
+	DLQObserver DLQObserver
 }
 
 const consumerRetryDelay = 5 * time.Second
@@ -153,9 +159,10 @@ func ConnectJetStreamConsumer(opts ConsumerOptions) (*nats.Conn, *JetStreamConsu
 	}
 
 	return nc, &JetStreamConsumer{
-		sub:        sub,
-		dlq:        &DLQPublisher{js: js, subject: opts.DLQSubject},
-		maxDeliver: uint64(opts.MaxDeliver),
+		sub:         sub,
+		dlq:         &DLQPublisher{js: js, subject: opts.DLQSubject},
+		dlqObserver: opts.DLQObserver,
+		maxDeliver:  uint64(opts.MaxDeliver),
 	}, nil
 }
 
@@ -200,7 +207,7 @@ func (c *JetStreamConsumer) Consume(ctx context.Context, handler func(context.Co
 		}
 
 		for _, msg := range msgs {
-			if err := consumeMessage(ctx, natsConsumableMessage{msg: msg}, c.dlq, c.maxDeliver, handler, onError); err != nil {
+			if err := consumeMessage(ctx, natsConsumableMessage{msg: msg}, c.dlq, c.maxDeliver, handler, onError, c.dlqObserver); err != nil {
 				return err
 			}
 		}
@@ -214,10 +221,17 @@ func consumeMessage(
 	maxDeliver uint64,
 	handler func(context.Context, contracts.LogsRawEvent) error,
 	onError consumeErrorHandler,
+	dlqObservers ...DLQObserver,
 ) error {
+	var dlqObserver DLQObserver
+	if len(dlqObservers) > 0 {
+		dlqObserver = dlqObservers[0]
+	}
 	var event contracts.LogsRawEvent
 	if err := json.Unmarshal(msg.Payload(), &event); err != nil {
-		if dlqErr := publishDLQ(ctx, dlqPublisher, msg.Payload(), nil, msg.DeliveryCount(), "malformed_payload", err); dlqErr != nil {
+		dlqErr := publishDLQ(ctx, dlqPublisher, msg.Payload(), nil, msg.DeliveryCount(), "malformed_payload", err)
+		observeDLQPublication(dlqObserver, dlqPublisher, "malformed_payload", dlqErr)
+		if dlqErr != nil {
 			return fmt.Errorf("publish malformed payload to dlq: %w", dlqErr)
 		}
 		if termErr := msg.Term(); termErr != nil {
@@ -229,7 +243,9 @@ func consumeMessage(
 
 	if err := handler(ctx, event); err != nil {
 		if isPoisonBatchError(err) {
-			if dlqErr := publishDLQ(ctx, dlqPublisher, msg.Payload(), &event, msg.DeliveryCount(), "invalid_batch", err); dlqErr != nil {
+			dlqErr := publishDLQ(ctx, dlqPublisher, msg.Payload(), &event, msg.DeliveryCount(), "invalid_batch", err)
+			observeDLQPublication(dlqObserver, dlqPublisher, "invalid_batch", dlqErr)
+			if dlqErr != nil {
 				return fmt.Errorf("publish invalid batch to dlq: %w", dlqErr)
 			}
 			if termErr := msg.Term(); termErr != nil {
@@ -239,7 +255,9 @@ func consumeMessage(
 			return nil
 		}
 		if maxDeliver > 0 && msg.DeliveryCount() >= maxDeliver {
-			if dlqErr := publishDLQ(ctx, dlqPublisher, msg.Payload(), &event, msg.DeliveryCount(), "retry_exhausted", err); dlqErr != nil {
+			dlqErr := publishDLQ(ctx, dlqPublisher, msg.Payload(), &event, msg.DeliveryCount(), "retry_exhausted", err)
+			observeDLQPublication(dlqObserver, dlqPublisher, "retry_exhausted", dlqErr)
+			if dlqErr != nil {
 				return fmt.Errorf("publish retry exhausted batch to dlq: %w", dlqErr)
 			}
 			if termErr := msg.Term(); termErr != nil {
@@ -260,6 +278,17 @@ func consumeMessage(
 	}
 
 	return nil
+}
+
+func observeDLQPublication(observer DLQObserver, publisher dlqPublisher, reason string, err error) {
+	if observer == nil || publisher == nil {
+		return
+	}
+	outcome := "published"
+	if err != nil {
+		outcome = "failed"
+	}
+	observer.ObserveDLQ(reason, outcome)
 }
 
 func reportConsumeError(ctx context.Context, onError consumeErrorHandler, err error) {

@@ -17,15 +17,16 @@ import (
 
 func Run(ctx context.Context, logger app.Logger, cfg config.Config, metrics *Metrics, alertMetrics AlertMetrics, ruleStore AlertRuleStore) error {
 	nc, consumer, err := stream.ConnectJetStreamConsumer(stream.ConsumerOptions{
-		URL:        cfg.NATSURL,
-		StreamName: cfg.NATSStream,
-		Subject:    cfg.NATSSubject,
-		DLQSubject: cfg.NATSDLQSubject,
-		Durable:    cfg.NATSDurable,
-		MaxDeliver: cfg.NATSMaxDeliver,
-		ReplayMode: cfg.NATSReplayMode,
-		ReplaySeq:  cfg.NATSReplaySeq,
-		ReplayTime: cfg.NATSReplayTime,
+		URL:         cfg.NATSURL,
+		StreamName:  cfg.NATSStream,
+		Subject:     cfg.NATSSubject,
+		DLQSubject:  cfg.NATSDLQSubject,
+		Durable:     cfg.NATSDurable,
+		MaxDeliver:  cfg.NATSMaxDeliver,
+		ReplayMode:  cfg.NATSReplayMode,
+		ReplaySeq:   cfg.NATSReplaySeq,
+		ReplayTime:  cfg.NATSReplayTime,
+		DLQObserver: metrics,
 	})
 	if err != nil {
 		return err
@@ -58,7 +59,11 @@ func Run(ctx context.Context, logger app.Logger, cfg config.Config, metrics *Met
 		if err != nil && stream.IsPoisonBatchError(err) {
 			result = resultInvalidBatch
 		}
-		metrics.ObserveBatch(result, len(batch.Logs), time.Since(start))
+		completedAt := time.Now()
+		metrics.ObserveBatch(result, len(batch.Logs), completedAt.Sub(start))
+		if receivedAt, parseErr := time.Parse(time.RFC3339Nano, batch.ReceivedAt); parseErr == nil {
+			metrics.ObserveEndToEnd(result, receivedAt, completedAt)
+		}
 		return err
 	}, func(_ context.Context, err error) {
 		logger.Error("processor failed to handle batch", "error", err)

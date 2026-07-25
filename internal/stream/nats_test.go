@@ -69,6 +69,7 @@ func TestConsumeMessageNaksRetryableHandlerError(t *testing.T) {
 
 func TestConsumeMessageTermsMalformedPayload(t *testing.T) {
 	dlq := &stubDLQPublisher{}
+	observer := &stubDLQObserver{}
 	msg := &stubConsumableMessage{payload: []byte(`{not-json`), deliveryCount: 1}
 
 	var reported error
@@ -77,7 +78,7 @@ func TestConsumeMessageTermsMalformedPayload(t *testing.T) {
 		return nil
 	}, func(_ context.Context, consumeErr error) {
 		reported = consumeErr
-	})
+	}, observer)
 	if err != nil {
 		t.Fatalf("expected malformed payload to be terminated without stopping loop, got %v", err)
 	}
@@ -95,6 +96,9 @@ func TestConsumeMessageTermsMalformedPayload(t *testing.T) {
 	}
 	if len(dlq.events) != 1 || dlq.events[0].Reason != "malformed_payload" {
 		t.Fatalf("expected malformed_payload dlq event, got %#v", dlq.events)
+	}
+	if len(observer.observations) != 1 || observer.observations[0] != "malformed_payload:published" {
+		t.Fatalf("expected successful DLQ metric observation, got %#v", observer.observations)
 	}
 }
 
@@ -188,6 +192,14 @@ func (m *stubConsumableMessage) DeliveryCount() uint64 {
 type stubDLQPublisher struct {
 	events []contracts.LogsDLQEvent
 	err    error
+}
+
+type stubDLQObserver struct {
+	observations []string
+}
+
+func (s *stubDLQObserver) ObserveDLQ(reason, outcome string) {
+	s.observations = append(s.observations, reason+":"+outcome)
 }
 
 func (p *stubDLQPublisher) Publish(_ context.Context, event contracts.LogsDLQEvent) error {
