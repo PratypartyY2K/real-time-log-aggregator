@@ -84,8 +84,13 @@ configuration, health checks, load testing, and failure exercises—is in
 make ci
 ```
 
-Individual targets are available for formatting, unit tests, builds, and the
-end-to-end ingest/queue/processor integration test.
+Functional coverage is split into fast, deterministic layers:
+
+- `make integration-test` verifies the ingest, queue-contract, processor, persistence,
+  alert, and replay boundaries together.
+- `make e2e-test` exercises the complete HTTP ingest to authenticated HTTP query
+  pipeline, including normalization, filtering, tenant isolation, and replay safety.
+- `make functional-test` runs both functional suites.
 
 ## Documentation
 
