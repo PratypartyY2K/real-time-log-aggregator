@@ -129,7 +129,6 @@ make docker-images
 - [OpenAPI 3.1 contract](internal/queryapi/playground/openapi.yaml) — machine-readable ingest and query specification
 - [JetStream contract](docs/jetstream.md) — subjects, schemas, replay, and DLQ behavior
 - [Distributed ClickHouse](docs/distributed-clickhouse.md) — sharding, coordinator behavior, migration, and production topology
-- [Kubernetes deployment](docs/kubernetes.md) — manifests, environment configuration, and secret management
 
 ## Current engineering boundaries
 
@@ -137,3 +136,7 @@ The local environment demonstrates logical sharding, not full high
 availability. Production deployment needs replicas per ClickHouse shard, a
 three-node Keeper quorum, distributed rate limiting, and external notification
 sinks. These are explicit evolution points rather than hidden assumptions.
+
+Docker Compose is the intended deployment path for the current scope.
+Kubernetes can be introduced later if traffic, availability requirements, or
+operational scale make container orchestration necessary.

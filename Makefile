@@ -3,7 +3,7 @@ GOFMT ?= gofmt
 DOCKER ?= docker
 IMAGE_PREFIX ?= logagg
 
-.PHONY: build cli docker-ingest docker-processor docker-query docker-images k8s-validate migrate-postgres run-ingest run-query run-processor fmt fmt-check test integration-test e2e-test functional-test performance-test query-benchmarks chaos-test validate-repository distributed-integration ci
+.PHONY: build cli docker-ingest docker-processor docker-query docker-images migrate-postgres run-ingest run-query run-processor fmt fmt-check test integration-test e2e-test functional-test performance-test query-benchmarks chaos-test validate-repository distributed-integration ci
 
 build:
 	$(GO) build ./...
@@ -21,11 +21,6 @@ docker-query:
 	$(DOCKER) build --build-arg SERVICE=query-api -t $(IMAGE_PREFIX)/query-api:local .
 
 docker-images: docker-ingest docker-processor docker-query
-
-k8s-validate:
-	kubectl kustomize deployments/kubernetes/base >/dev/null
-	kubectl kustomize deployments/kubernetes/overlays/production >/dev/null
-	kubectl kustomize deployments/kubernetes/external-secrets >/dev/null
 
 migrate-postgres:
 	$(GO) run ./cmd/postgres-migrate
