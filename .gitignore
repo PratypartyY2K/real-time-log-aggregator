@@ -13,6 +13,7 @@ coverage.out
 # Environment
 .env
 .env.*
+deployments/kubernetes/secrets.env
 
 # Editors
 .DS_Store
