@@ -1,10 +1,23 @@
 GO ?= go
 GOFMT ?= gofmt
+DOCKER ?= docker
+IMAGE_PREFIX ?= logagg
 
-.PHONY: build migrate-postgres run-ingest run-query run-processor fmt fmt-check test integration-test e2e-test functional-test performance-test query-benchmarks chaos-test validate-repository distributed-integration ci
+.PHONY: build docker-ingest docker-processor docker-query docker-images migrate-postgres run-ingest run-query run-processor fmt fmt-check test integration-test e2e-test functional-test performance-test query-benchmarks chaos-test validate-repository distributed-integration ci
 
 build:
 	$(GO) build ./...
+
+docker-ingest:
+	$(DOCKER) build --build-arg SERVICE=ingest-api -t $(IMAGE_PREFIX)/ingest-api:local .
+
+docker-processor:
+	$(DOCKER) build --build-arg SERVICE=processor -t $(IMAGE_PREFIX)/processor:local .
+
+docker-query:
+	$(DOCKER) build --build-arg SERVICE=query-api -t $(IMAGE_PREFIX)/query-api:local .
+
+docker-images: docker-ingest docker-processor docker-query
 
 migrate-postgres:
 	$(GO) run ./cmd/postgres-migrate
