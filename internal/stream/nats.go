@@ -20,9 +20,11 @@ type JetStreamPublisher struct {
 
 type JetStreamConsumer struct {
 	sub         *nats.Subscription
+	fetch       func(int, ...nats.PullOpt) ([]*nats.Msg, error)
 	dlq         *DLQPublisher
 	dlqObserver DLQObserver
 	maxDeliver  uint64
+	retryDelay  time.Duration
 }
 
 type DLQObserver interface {
@@ -43,6 +45,7 @@ type ConsumerOptions struct {
 }
 
 const consumerRetryDelay = 5 * time.Second
+const connectionRetryDelay = time.Second
 
 type consumeErrorHandler func(context.Context, error)
 
@@ -160,9 +163,11 @@ func ConnectJetStreamConsumer(opts ConsumerOptions) (*nats.Conn, *JetStreamConsu
 
 	return nc, &JetStreamConsumer{
 		sub:         sub,
+		fetch:       sub.Fetch,
 		dlq:         &DLQPublisher{js: js, subject: opts.DLQSubject},
 		dlqObserver: opts.DLQObserver,
 		maxDeliver:  uint64(opts.MaxDeliver),
+		retryDelay:  connectionRetryDelay,
 	}, nil
 }
 
@@ -198,9 +203,16 @@ func (c *JetStreamConsumer) Consume(ctx context.Context, handler func(context.Co
 		default:
 		}
 
-		msgs, err := c.sub.Fetch(1, nats.MaxWait(time.Second))
+		msgs, err := c.fetchMessages(1, nats.MaxWait(time.Second))
 		if err != nil {
 			if errors.Is(err, nats.ErrTimeout) {
+				continue
+			}
+			if isTransientConnectionError(err) {
+				reportConsumeError(ctx, onError, fmt.Errorf("fetch message while nats unavailable: %w", err))
+				if !waitForRetry(ctx, c.retryDelay) {
+					return nil
+				}
 				continue
 			}
 			return fmt.Errorf("fetch message: %w", err)
@@ -211,6 +223,37 @@ func (c *JetStreamConsumer) Consume(ctx context.Context, handler func(context.Co
 				return err
 			}
 		}
+	}
+}
+
+func (c *JetStreamConsumer) fetchMessages(batch int, opts ...nats.PullOpt) ([]*nats.Msg, error) {
+	if c.fetch != nil {
+		return c.fetch(batch, opts...)
+	}
+	if c.sub == nil {
+		return nil, nats.ErrBadSubscription
+	}
+	return c.sub.Fetch(batch, opts...)
+}
+
+func isTransientConnectionError(err error) bool {
+	return errors.Is(err, nats.ErrDisconnected) ||
+		errors.Is(err, nats.ErrConnectionReconnecting) ||
+		errors.Is(err, nats.ErrNoServers) ||
+		errors.Is(err, nats.ErrConnectionClosed)
+}
+
+func waitForRetry(ctx context.Context, delay time.Duration) bool {
+	if delay <= 0 {
+		return ctx.Err() == nil
+	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
 	}
 }
 
