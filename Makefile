@@ -1,7 +1,7 @@
 GO ?= go
 GOFMT ?= gofmt
 
-.PHONY: build migrate-postgres run-ingest run-query run-processor fmt fmt-check test integration-test e2e-test functional-test performance-test query-benchmarks validate-repository distributed-integration ci
+.PHONY: build migrate-postgres run-ingest run-query run-processor fmt fmt-check test integration-test e2e-test functional-test performance-test query-benchmarks chaos-test validate-repository distributed-integration ci
 
 build:
 	$(GO) build ./...
@@ -49,6 +49,9 @@ performance-test:
 
 query-benchmarks:
 	$(GO) test ./internal/queryapi -run '^$$' -bench 'Benchmark(QueryLogsHandler|BuildLogsQuery)$$' -benchmem
+
+chaos-test:
+	$(GO) test ./internal/stream -run '^TestChaos' -count=1
 
 validate-repository:
 	bash .github/scripts/validate-repository.sh

@@ -280,6 +280,43 @@ rate is available by both `reason` and `outcome`, including failed DLQ writes.
 
 ## Failure drills
 
+Run the deterministic lightweight recovery checks without external services:
+
+```bash
+make chaos-test
+```
+
+### Kill processor
+
+Start the processor from a shell and retain its exact PID:
+
+```bash
+go run ./cmd/processor &
+LOGAGG_PROCESSOR_PID=$!
+kill "$LOGAGG_PROCESSOR_PID"
+go run ./cmd/processor
+```
+
+Publish a batch before the kill and verify after restart that
+`logagg_queue_consumer_redelivered` increases, consumer pending returns to zero,
+and the ingest ID appears only once in ClickHouse. JetStream leaves an in-flight
+unacknowledged message durable; the restarted processor receives it again and
+the `(tenant_id, ingest_id)` check prevents a duplicate write.
+
+### Drop NATS connection
+
+```bash
+docker compose -f deployments/local/docker-compose.yml stop nats
+docker compose -f deployments/local/docker-compose.yml start nats
+```
+
+While NATS is unavailable, ingest publishing returns `503`, queue monitoring
+reports unavailable, and the processor reports fetch errors without exiting.
+After the NATS client reconnects, the processor resumes pulls from the durable
+consumer. Verify pending messages drain and `logagg_queue_consumer_redelivered`
+does not grow continuously. If the configured NATS reconnect window is
+exhausted, restart the processor under its service supervisor.
+
 ### Stop shard 2
 
 ```bash

@@ -82,6 +82,17 @@ jobs:
       - name: Smoke-test query benchmarks
         run: go test ./internal/queryapi -run '^$' -bench BenchmarkBuildLogsQuery -benchtime=1x
 
+  lightweight-chaos:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Verify processor and NATS recovery behavior
+        run: make chaos-test
+
   distributed-clickhouse:
     runs-on: ubuntu-latest
     timeout-minutes: 15
