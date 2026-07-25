@@ -114,16 +114,52 @@ endpoints.
 
 ## Load testing
 
+Burst ingestion sends short, concurrent spikes. Every request has unique log
+content so replay deduplication does not hide actual load:
+
 ```bash
 go run ./cmd/loadtest \
   -url http://localhost:8080/v1/logs \
   -api-key local-dev-key \
+  -mode burst \
   -bursts 5 \
   -burst-size 100 \
   -concurrency 20 \
   -logs-per-request 25 \
-  -pause 2s
+  -pause 2s \
+  -max-error-rate 0.01 \
+  -max-p95 500ms
 ```
+
+Sustained mode holds a target request rate for a fixed duration:
+
+```bash
+go run ./cmd/loadtest \
+  -url http://localhost:8080/v1/logs \
+  -api-key local-dev-key \
+  -mode sustained \
+  -duration 10m \
+  -rate 200 \
+  -concurrency 50 \
+  -logs-per-request 25 \
+  -max-error-rate 0.01 \
+  -max-p95 500ms
+```
+
+The command exits unsuccessfully when an error-rate or p95 threshold is
+exceeded. Its summary reports achieved request rate and p50/p95/p99/max
+latency. Multiply request rate by `logs-per-request` for offered log throughput.
+
+Run the query-path microbenchmarks with:
+
+```bash
+make query-benchmarks
+```
+
+The benchmarks separately measure filtered-query construction and the complete
+HTTP query handler with a 100-record response. Record results alongside the
+machine shape, dataset size, ClickHouse topology, and query window when doing
+environment-level capacity tests.
 
 Observe request rate, processor throughput, consumer lag, redelivery count, and
 ClickHouse availability during the run.
