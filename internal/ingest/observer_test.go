@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/PratypartyY2K/real-time-log-aggregator/internal/logging"
@@ -38,6 +39,25 @@ func TestMetricsObserverTracksAuthOutcomes(t *testing.T) {
 	}
 	if got.AuthenticatorMissing != 1 {
 		t.Fatalf("expected authenticator_unavailable=1, got %d", got.AuthenticatorMissing)
+	}
+}
+
+func TestMetricsObserverTracksAcceptedThroughput(t *testing.T) {
+	observer := NewMetricsObserver(nil)
+	observer.ObserveIngestAccepted(context.Background(), IngestObservation{LogCount: 3, Bytes: 512})
+	observer.ObserveIngestAccepted(context.Background(), IngestObservation{LogCount: 2, Bytes: 256})
+
+	snapshot := observer.Snapshot()
+	if snapshot.AcceptedBatches != 2 || snapshot.AcceptedLogs != 5 || snapshot.AcceptedBytes != 768 {
+		t.Fatalf("unexpected throughput snapshot: %+v", snapshot)
+	}
+
+	var output strings.Builder
+	observer.WritePrometheus(&output)
+	for _, metric := range []string{"logagg_ingest_batches_total", "logagg_ingest_logs_total", "logagg_ingest_bytes_total"} {
+		if !strings.Contains(output.String(), metric) {
+			t.Fatalf("expected %s in metrics output: %s", metric, output.String())
+		}
 	}
 }
 

@@ -89,6 +89,15 @@ func TestHandlerAcceptsValidBatch(t *testing.T) {
 	if len(observer.observations) != 1 || observer.observations[0].Outcome != AuthOutcomeAuthorized {
 		t.Fatalf("expected authorized observation, got %#v", observer.observations)
 	}
+	if len(observer.ingestObservations) != 1 {
+		t.Fatalf("expected one ingest observation, got %#v", observer.ingestObservations)
+	}
+	if got := observer.ingestObservations[0].LogCount; got != 1 {
+		t.Fatalf("accepted log count = %d, want 1", got)
+	}
+	if got := observer.ingestObservations[0].Bytes; got != int64(len(body)) {
+		t.Fatalf("accepted bytes = %d, want %d", got, len(body))
+	}
 }
 
 func TestBatchFingerprintIsDeterministic(t *testing.T) {
@@ -447,7 +456,8 @@ type stubAuthenticator struct {
 }
 
 type stubObserver struct {
-	observations []AuthObservation
+	observations       []AuthObservation
+	ingestObservations []IngestObservation
 }
 
 type allowAllRateLimiter struct{}
@@ -460,6 +470,10 @@ func (s stubAuthenticator) Authorize(_ context.Context, _ string, _ BatchRequest
 
 func (s *stubObserver) ObserveAuth(_ context.Context, obs AuthObservation) {
 	s.observations = append(s.observations, obs)
+}
+
+func (s *stubObserver) ObserveIngestAccepted(_ context.Context, observation IngestObservation) {
+	s.ingestObservations = append(s.ingestObservations, observation)
 }
 
 func (allowAllRateLimiter) Allow(_ int64, _ int) bool {

@@ -41,6 +41,15 @@ type Observer interface {
 	ObserveAuth(context.Context, AuthObservation)
 }
 
+type IngestObservation struct {
+	LogCount int
+	Bytes    int64
+}
+
+type ThroughputObserver interface {
+	ObserveIngestAccepted(context.Context, IngestObservation)
+}
+
 type MetricsSnapshot struct {
 	Authorized           int64 `json:"authorized"`
 	MissingAPIKey        int64 `json:"missing_api_key"`
@@ -52,6 +61,9 @@ type MetricsSnapshot struct {
 	RequestBodyTooLarge  int64 `json:"request_body_too_large"`
 	InvalidRequestBody   int64 `json:"invalid_request_body"`
 	BatchTooLarge        int64 `json:"batch_too_large"`
+	AcceptedBatches      int64 `json:"accepted_batches"`
+	AcceptedLogs         int64 `json:"accepted_logs"`
+	AcceptedBytes        int64 `json:"accepted_bytes"`
 }
 
 type MetricsObserver struct {
@@ -66,6 +78,18 @@ type MetricsObserver struct {
 	requestBodyTooLarge  atomic.Int64
 	invalidRequestBody   atomic.Int64
 	batchTooLarge        atomic.Int64
+	acceptedBatches      atomic.Int64
+	acceptedLogs         atomic.Int64
+	acceptedBytes        atomic.Int64
+}
+
+func (o *MetricsObserver) ObserveIngestAccepted(_ context.Context, obs IngestObservation) {
+	if o == nil {
+		return
+	}
+	o.acceptedBatches.Add(1)
+	o.acceptedLogs.Add(int64(max(obs.LogCount, 0)))
+	o.acceptedBytes.Add(max(obs.Bytes, 0))
 }
 
 func NewMetricsObserver(logger *slog.Logger) *MetricsObserver {
@@ -131,6 +155,9 @@ func (o *MetricsObserver) Snapshot() MetricsSnapshot {
 		RequestBodyTooLarge:  o.requestBodyTooLarge.Load(),
 		InvalidRequestBody:   o.invalidRequestBody.Load(),
 		BatchTooLarge:        o.batchTooLarge.Load(),
+		AcceptedBatches:      o.acceptedBatches.Load(),
+		AcceptedLogs:         o.acceptedLogs.Load(),
+		AcceptedBytes:        o.acceptedBytes.Load(),
 	}
 }
 
@@ -145,6 +172,13 @@ func (o *MetricsObserver) WritePrometheus(body *strings.Builder) {
 	}
 
 	commonmetrics.WriteMetricHelp(body, "logagg_ingest_auth_outcomes_total", "Total ingest auth and validation outcomes.", "counter")
+	commonmetrics.WriteMetricHelp(body, "logagg_ingest_batches_total", "Total durably accepted ingest batches.", "counter")
+	commonmetrics.WriteMetricHelp(body, "logagg_ingest_logs_total", "Total log records in durably accepted ingest batches.", "counter")
+	commonmetrics.WriteMetricHelp(body, "logagg_ingest_bytes_total", "Total HTTP body bytes in durably accepted ingest batches.", "counter")
+	acceptedLabels := map[string]string{"result": "accepted"}
+	commonmetrics.WriteMetricLine(body, "logagg_ingest_batches_total", acceptedLabels, stdstrconv.FormatInt(o.acceptedBatches.Load(), 10))
+	commonmetrics.WriteMetricLine(body, "logagg_ingest_logs_total", acceptedLabels, stdstrconv.FormatInt(o.acceptedLogs.Load(), 10))
+	commonmetrics.WriteMetricLine(body, "logagg_ingest_bytes_total", acceptedLabels, stdstrconv.FormatInt(o.acceptedBytes.Load(), 10))
 
 	for _, sample := range []struct {
 		outcome string

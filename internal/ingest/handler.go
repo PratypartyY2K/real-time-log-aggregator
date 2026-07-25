@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"sort"
 	"strings"
@@ -122,7 +123,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	r.Body = http.MaxBytesReader(w, r.Body, h.maxBodyBytes)
+	bodyCounter := &countingReadCloser{ReadCloser: r.Body}
+	r.Body = http.MaxBytesReader(w, bodyCounter, h.maxBodyBytes)
 	defer r.Body.Close()
 
 	var req BatchRequest
@@ -234,12 +236,26 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "failed to queue logs")
 		return
 	}
+	if observer, ok := h.observer.(ThroughputObserver); ok {
+		observer.ObserveIngestAccepted(r.Context(), IngestObservation{LogCount: len(req.Logs), Bytes: bodyCounter.bytes})
+	}
 
 	writeJSON(w, http.StatusAccepted, BatchResponse{
 		RequestID: requestID,
 		Accepted:  len(req.Logs),
 		Status:    "queued",
 	})
+}
+
+type countingReadCloser struct {
+	io.ReadCloser
+	bytes int64
+}
+
+func (r *countingReadCloser) Read(payload []byte) (int, error) {
+	count, err := r.ReadCloser.Read(payload)
+	r.bytes += int64(count)
+	return count, err
 }
 
 func (h *Handler) observeAuth(ctx context.Context, obs AuthObservation) {
