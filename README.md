@@ -1,3 +1,5 @@
+[![CI](https://github.com/PratypartyY2K/real-time-log-aggregator/actions/workflows/ci.yml/badge.svg)](https://github.com/PratypartyY2K/real-time-log-aggregator/actions/workflows/ci.yml)
+
 # Real-time Log Aggregator
 
 A multi-tenant distributed log platform built to demonstrate production-oriented
