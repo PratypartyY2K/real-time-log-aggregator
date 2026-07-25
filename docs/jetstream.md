@@ -2,6 +2,17 @@
 
 This document defines the stream contract and replay model for the asynchronous boundary between `ingest-api` and `processor`. For the end-to-end system view, see [architecture.md](./architecture.md).
 
+## Table of contents
+
+- [`logs.raw` event](#logsraw-event)
+- [Topology](#topology)
+- [Delivery semantics](#delivery-semantics)
+- [Backpressure](#backpressure)
+- [Dead-letter handling](#dead-letter-handling)
+- [Replay](#replay)
+- [Operational Notes](#operational-notes)
+- [Bootstrap](#bootstrap)
+
 ## `logs.raw` event
 
 Schema version: `logs.raw.v1`

@@ -4,6 +4,23 @@ This document is the architectural source of truth for the implemented system.
 It covers the high-level design (HLD), low-level design (LLD), data model,
 distributed-system behavior, guarantees, failure modes, and evolution path.
 
+## Table of contents
+
+- [1. Problem statement](#1-problem-statement)
+- [2. Requirements and constraints](#2-requirements-and-constraints)
+- [3. High-level design](#3-high-level-design)
+- [4. Core data flows](#4-core-data-flows)
+- [5. Distributed storage design](#5-distributed-storage-design)
+- [6. Low-level design](#6-low-level-design)
+- [7. Contracts and delivery semantics](#7-contracts-and-delivery-semantics)
+- [8. Failure model](#8-failure-model)
+- [9. Backpressure and scaling](#9-backpressure-and-scaling)
+- [10. Security and tenant isolation](#10-security-and-tenant-isolation)
+- [11. Observability model](#11-observability-model)
+- [12. Key design decisions and tradeoffs](#12-key-design-decisions-and-tradeoffs)
+- [13. Evolution roadmap](#13-evolution-roadmap)
+- [14. Source map](#14-source-map)
+
 ## 1. Problem statement
 
 The platform accepts multi-tenant application logs, absorbs bursty write load,

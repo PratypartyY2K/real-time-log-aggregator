@@ -5,6 +5,12 @@ ClickHouse nodes and one ClickHouse Keeper node. It is intended for functional
 testing, not production high availability: each shard has one replica and the
 Keeper service is a single node.
 
+## Table of contents
+
+- [Data layout](#data-layout)
+- [Partial failures](#partial-failures)
+- [Migration](#migration)
+
 ## Data layout
 
 - `logs_local` is a `MergeTree` table stored independently on each shard.

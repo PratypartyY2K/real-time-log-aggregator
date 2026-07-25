@@ -7,6 +7,16 @@ system design: durable ingestion, asynchronous processing, replay safety,
 tenant-aware ClickHouse sharding, analytical queries, alert state management,
 backpressure, and observability.
 
+## Table of contents
+
+- [Architecture at a glance](#architecture-at-a-glance)
+- [Design highlights](#design-highlights)
+- [Repository map](#repository-map)
+- [Quick start](#quick-start)
+- [Verification](#verification)
+- [Documentation](#documentation)
+- [Current engineering boundaries](#current-engineering-boundaries)
+
 ## Architecture at a glance
 
 ```mermaid

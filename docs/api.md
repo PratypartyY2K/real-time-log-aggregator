@@ -6,6 +6,22 @@ The machine-readable OpenAPI 3.1 contract is served by `query-api` at
 `GET /openapi.yaml` and stored at
 [`internal/queryapi/playground/openapi.yaml`](../internal/queryapi/playground/openapi.yaml).
 
+## Table of contents
+
+- [Correlation headers](#correlation-headers)
+- [`POST /v1/logs`](#post-v1logs)
+- [`GET /metricsz`](#get-metricsz)
+- [`GET /metrics`](#get-metrics)
+- [`GET /healthz`](#get-healthz)
+- [`GET /readyz`](#get-readyz)
+- [`GET /v1/logs`](#get-v1logs)
+- [`GET /v1/graph`](#get-v1graph)
+- [Alert history and delivery tracking](#alert-history-and-delivery-tracking)
+- [`GET /v1/analytics`](#get-v1analytics)
+- [`POST /v1/query`](#post-v1query)
+- [Schema evolution](#schema-evolution)
+- [`GET /v1/status`](#get-v1status)
+
 ## Correlation headers
 
 Every HTTP endpoint accepts `X-Request-Id` and the W3C `traceparent` header. If either context is absent or the trace context is invalid, the service generates it. Responses include `X-Request-Id` and `X-Trace-Id`, and downstream HTTP calls preserve both identifiers. The ingest pipeline also carries them across JetStream so processor activity and stored records remain connected to the originating request.

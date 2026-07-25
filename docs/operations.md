@@ -5,6 +5,20 @@ and operational runbooks. Architectural rationale belongs in
 [architecture.md](./architecture.md); wire contracts belong in
 [api.md](./api.md) and [jetstream.md](./jetstream.md).
 
+## Table of contents
+
+- [Local topology](#local-topology)
+- [Bootstrap](#bootstrap)
+- [Seed local access](#seed-local-access)
+- [Run services](#run-services)
+- [Configuration](#configuration)
+- [Load testing](#load-testing)
+- [Backpressure exercises](#backpressure-exercises)
+- [Alert rule evaluation](#alert-rule-evaluation)
+- [Observability](#observability)
+- [Failure drills](#failure-drills)
+- [Migration validation](#migration-validation)
+
 ## Local topology
 
 Docker Compose runs infrastructure; Go services run on the host.
