@@ -92,6 +92,14 @@ Functional coverage is split into fast, deterministic layers:
   pipeline, including normalization, filtering, tenant isolation, and replay safety.
 - `make functional-test` runs both functional suites.
 
+CI runs the combined functional suite as its integration pipeline and builds
+the three runtime container images without publishing them. Build the same
+images locally with:
+
+```bash
+make docker-images
+```
+
 ## Documentation
 
 - [Architecture and design](docs/architecture.md) — HLD, LLD, data flows, guarantees, scaling, and tradeoffs
