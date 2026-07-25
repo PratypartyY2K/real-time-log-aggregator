@@ -1,0 +1,28 @@
+{
+  "schema_version": "logs.ingest.v1",
+  "service": "catalog",
+  "env": "dev",
+  "source": "sample",
+  "logs": [
+    {
+      "timestamp": "2026-07-25T10:05:00Z",
+      "level": "info",
+      "message": "catalog cache refreshed",
+      "fields": {
+        "host": "catalog-1",
+        "trace_id": "demo-trace-002",
+        "items": 842
+      }
+    },
+    {
+      "timestamp": "2026-07-25T10:05:02Z",
+      "level": "debug",
+      "message": "search index checkpoint",
+      "fields": {
+        "host": "catalog-1",
+        "trace_id": "demo-trace-003",
+        "checkpoint": "products-842"
+      }
+    }
+  ]
+}

@@ -3,10 +3,13 @@ GOFMT ?= gofmt
 DOCKER ?= docker
 IMAGE_PREFIX ?= logagg
 
-.PHONY: build docker-ingest docker-processor docker-query docker-images migrate-postgres run-ingest run-query run-processor fmt fmt-check test integration-test e2e-test functional-test performance-test query-benchmarks chaos-test validate-repository distributed-integration ci
+.PHONY: build cli docker-ingest docker-processor docker-query docker-images migrate-postgres run-ingest run-query run-processor fmt fmt-check test integration-test e2e-test functional-test performance-test query-benchmarks chaos-test validate-repository distributed-integration ci
 
 build:
 	$(GO) build ./...
+
+cli:
+	$(GO) build -o bin/logagg ./cmd/logagg
 
 docker-ingest:
 	$(DOCKER) build --build-arg SERVICE=ingest-api -t $(IMAGE_PREFIX)/ingest-api:local .

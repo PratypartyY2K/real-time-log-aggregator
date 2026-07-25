@@ -1,0 +1,41 @@
+{
+  "schema_version": "logs.ingest.v1",
+  "service": "checkout",
+  "env": "dev",
+  "source": "sample",
+  "logs": [
+    {
+      "timestamp": "2026-07-25T10:00:00Z",
+      "level": "info",
+      "message": "checkout started",
+      "fields": {
+        "host": "checkout-api-1",
+        "trace_id": "demo-trace-001",
+        "region": "us-west-2",
+        "cart_items": 3
+      }
+    },
+    {
+      "timestamp": "2026-07-25T10:00:01Z",
+      "level": "error",
+      "message": "payment provider timed out",
+      "fields": {
+        "host": "checkout-api-1",
+        "trace_id": "demo-trace-001",
+        "region": "us-west-2",
+        "provider": "demo-pay",
+        "duration_ms": 2500
+      }
+    },
+    {
+      "timestamp": "2026-07-25T10:00:02Z",
+      "level": "warn",
+      "message": "payment retry scheduled",
+      "fields": {
+        "host": "checkout-api-1",
+        "trace_id": "demo-trace-001",
+        "attempt": 2
+      }
+    }
+  ]
+}
