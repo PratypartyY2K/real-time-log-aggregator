@@ -58,6 +58,17 @@ jobs:
       - name: Run integration flow check
         run: make integration-test
 
+  end-to-end:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Run end-to-end pipeline check
+        run: make e2e-test
+
   distributed-clickhouse:
     runs-on: ubuntu-latest
     timeout-minutes: 15
