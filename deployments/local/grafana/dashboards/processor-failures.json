@@ -154,12 +154,12 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "sum(rate(logagg_processor_batch_duration_seconds_sum{service=\"processor\"}[5m])) / sum(rate(logagg_processor_batch_duration_seconds_count{service=\"processor\"}[5m]))",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(logagg_processor_end_to_end_latency_seconds_bucket{service=\"processor\",result=\"success\"}[5m])))",
           "range": true,
           "refId": "A"
         }
       ],
-      "title": "Average Batch Duration",
+      "title": "P95 End-to-End Processing Latency",
       "type": "timeseries"
     }
   ],

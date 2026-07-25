@@ -8,7 +8,7 @@
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "reqps"
+          "unit": "ops"
         },
         "overrides": []
       },
@@ -33,13 +33,13 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "sum by (code) (rate(logagg_http_requests_total{service=\"ingest-api\",route=\"/v1/logs\"}[5m]))",
-          "legendFormat": "{{code}}",
+          "expr": "sum(rate(logagg_ingest_logs_total{result=\"accepted\"}[5m]))",
+          "legendFormat": "accepted logs",
           "range": true,
           "refId": "A"
         }
       ],
-      "title": "Ingest Request Rate",
+      "title": "Accepted Logs / Second",
       "type": "timeseries"
     },
     {
@@ -74,12 +74,12 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "sum(rate(logagg_http_request_duration_seconds_sum{service=\"ingest-api\",route=\"/v1/logs\"}[5m])) / sum(rate(logagg_http_request_duration_seconds_count{service=\"ingest-api\",route=\"/v1/logs\"}[5m]))",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(logagg_http_request_duration_seconds_bucket{service=\"ingest-api\",route=\"/v1/logs\"}[5m])))",
           "range": true,
           "refId": "A"
         }
       ],
-      "title": "Average Ingest Request Duration",
+      "title": "P95 Ingest Request Latency",
       "type": "timeseries"
     },
     {
