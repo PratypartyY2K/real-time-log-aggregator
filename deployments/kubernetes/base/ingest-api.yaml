@@ -1,0 +1,70 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ingest-api
+  labels: &labels
+    app.kubernetes.io/name: ingest-api
+    app.kubernetes.io/part-of: logagg
+spec:
+  replicas: 2
+  selector:
+    matchLabels: *labels
+  template:
+    metadata:
+      labels: *labels
+    spec:
+      serviceAccountName: logagg
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: ingest-api
+          image: logagg/ingest-api
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: logagg-config
+            - secretRef:
+                name: logagg-secrets
+          env:
+            - name: SERVICE_NAME
+              value: ingest-api
+            - name: HTTP_ADDR
+              value: :8080
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 3
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits: { cpu: "1", memory: 512Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ingest-api
+spec:
+  selector:
+    app.kubernetes.io/name: ingest-api
+    app.kubernetes.io/part-of: logagg
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http

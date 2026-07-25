@@ -1,0 +1,71 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: processor
+  labels: &labels
+    app.kubernetes.io/name: processor
+    app.kubernetes.io/part-of: logagg
+spec:
+  replicas: 2
+  selector:
+    matchLabels: *labels
+  template:
+    metadata:
+      labels: *labels
+    spec:
+      serviceAccountName: logagg
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: processor
+          image: logagg/processor
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: logagg-config
+            - secretRef:
+                name: logagg-secrets
+          env:
+            - name: SERVICE_NAME
+              value: processor
+            - name: METRICS_ADDR
+              value: :9092
+          ports:
+            - name: metrics
+              containerPort: 9092
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: metrics
+            periodSeconds: 10
+            timeoutSeconds: 3
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: metrics
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            requests: { cpu: 250m, memory: 256Mi }
+            limits: { cpu: "2", memory: 1Gi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: processor
+spec:
+  selector:
+    app.kubernetes.io/name: processor
+    app.kubernetes.io/part-of: logagg
+  ports:
+    - name: metrics
+      port: 9092
+      targetPort: metrics

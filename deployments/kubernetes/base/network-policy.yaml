@@ -1,0 +1,16 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: logagg-default
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/part-of: logagg
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector: {}
+      ports:
+        - { protocol: TCP, port: 8080 }
+        - { protocol: TCP, port: 8081 }
+        - { protocol: TCP, port: 9092 }

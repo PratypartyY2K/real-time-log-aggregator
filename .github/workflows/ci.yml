@@ -44,8 +44,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+      - uses: azure/setup-kubectl@v4
       - name: Validate Compose, ClickHouse XML, and documentation
         run: make validate-repository
+      - name: Render Kubernetes manifests
+        run: make k8s-validate
 
   integration-pipeline:
     runs-on: ubuntu-latest
