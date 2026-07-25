@@ -211,8 +211,12 @@ the delivery ID as an idempotency key where the provider supports it.
 ## Observability
 
 Prometheus-compatible metrics are exposed at `/metrics`. Grafana is provisioned
-with `Ingest Throughput`, `Queue Lag`, `Processor Failures`, and `Alert Volume`
-dashboards.
+with `Ingest Throughput`, `Queue Lag`, `Processor Failures`, `Alert Volume`,
+`Query Performance`, and `Service SLOs` dashboards. The SLO-style dashboard
+shows 5-minute and rolling 1-hour HTTP availability, HTTP p95/p99 latency,
+end-to-end processor p95/p99 latency, processor error ratio, and DLQ publication
+failure ratio. Its thresholds are operational defaults and should be aligned
+with the service's formal SLO policy before production use.
 
 Important metric families:
 
