@@ -64,7 +64,10 @@ type httpMetricKey struct {
 type httpMetricValue struct {
 	Count       uint64
 	DurationSum float64
+	Buckets     []uint64
 }
+
+var httpDurationBuckets = []float64{0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10}
 
 func NewHTTPCollector(service string) *HTTPCollector {
 	return &HTTPCollector{
@@ -104,6 +107,14 @@ func (c *HTTPCollector) observe(route, method string, code int, duration time.Du
 	value := c.requests[key]
 	value.Count++
 	value.DurationSum += duration.Seconds()
+	if value.Buckets == nil {
+		value.Buckets = make([]uint64, len(httpDurationBuckets))
+	}
+	for index, upperBound := range httpDurationBuckets {
+		if duration.Seconds() <= upperBound {
+			value.Buckets[index]++
+		}
+	}
 	c.requests[key] = value
 }
 
@@ -116,8 +127,7 @@ func (c *HTTPCollector) WritePrometheus(body *strings.Builder) {
 	WriteMetricLine(body, "logagg_http_inflight_requests", map[string]string{"service": c.service}, strconv.FormatInt(c.inflight.Load(), 10))
 
 	WriteMetricHelp(body, "logagg_http_requests_total", "Total HTTP requests by route, method, and status code.", "counter")
-	WriteMetricHelp(body, "logagg_http_request_duration_seconds_sum", "Cumulative HTTP request duration in seconds.", "counter")
-	WriteMetricHelp(body, "logagg_http_request_duration_seconds_count", "Total observed HTTP requests for duration aggregation.", "counter")
+	WriteMetricHelp(body, "logagg_http_request_duration_seconds", "HTTP request duration in seconds.", "histogram")
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -130,9 +140,25 @@ func (c *HTTPCollector) WritePrometheus(body *strings.Builder) {
 			"code":    strconv.Itoa(key.Code),
 		}
 		WriteMetricLine(body, "logagg_http_requests_total", labels, strconv.FormatUint(value.Count, 10))
+		for index, upperBound := range httpDurationBuckets {
+			bucketLabels := cloneLabels(labels)
+			bucketLabels["le"] = FormatFloat(upperBound)
+			WriteMetricLine(body, "logagg_http_request_duration_seconds_bucket", bucketLabels, strconv.FormatUint(value.Buckets[index], 10))
+		}
+		infiniteLabels := cloneLabels(labels)
+		infiniteLabels["le"] = "+Inf"
+		WriteMetricLine(body, "logagg_http_request_duration_seconds_bucket", infiniteLabels, strconv.FormatUint(value.Count, 10))
 		WriteMetricLine(body, "logagg_http_request_duration_seconds_sum", labels, FormatFloat(value.DurationSum))
 		WriteMetricLine(body, "logagg_http_request_duration_seconds_count", labels, strconv.FormatUint(value.Count, 10))
 	}
+}
+
+func cloneLabels(labels map[string]string) map[string]string {
+	cloned := make(map[string]string, len(labels)+1)
+	for key, value := range labels {
+		cloned[key] = value
+	}
+	return cloned
 }
 
 type statusRecorder struct {
