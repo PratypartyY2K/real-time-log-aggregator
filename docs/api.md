@@ -12,8 +12,8 @@ The machine-readable OpenAPI 3.1 contract is served by `query-api` at
 - [`POST /v1/logs`](#post-v1logs)
 - [`GET /metricsz`](#get-metricsz)
 - [`GET /metrics`](#get-metrics)
-- [`GET /healthz`](#get-healthz)
-- [`GET /readyz`](#get-readyz)
+- [`GET /health`](#get-health)
+- [`GET /ready`](#get-ready)
 - [`GET /v1/logs`](#get-v1logs)
 - [`GET /v1/graph`](#get-v1graph)
 - [Alert history and delivery tracking](#alert-history-and-delivery-tracking)
@@ -117,18 +117,22 @@ Current behavior:
 
 - exposes Prometheus-compatible metrics for the current service
 
-## `GET /healthz`
+## `GET /health`
 
 Current behavior:
 
-- returns `200 OK` with `ok` when the process is alive
+- returns `200 OK` with `{"status":"ok"}` when the process is alive
+- `/healthz` is kept as a compatibility alias
 
-## `GET /readyz`
+## `GET /ready`
 
 Current behavior:
 
 - `ingest-api` checks Postgres and NATS
 - `query-api` checks Postgres and ClickHouse
+- `processor` checks NATS, Postgres, and ClickHouse
+- returns `503 Service Unavailable` with per-dependency errors when any check fails
+- `/readyz` is kept as a compatibility alias
 
 ## `GET /v1/logs`
 

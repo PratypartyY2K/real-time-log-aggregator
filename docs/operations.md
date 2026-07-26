@@ -106,9 +106,12 @@ go run ./cmd/query-api
 Readiness checks:
 
 ```bash
-curl -sf http://localhost:8080/readyz
-curl -sf http://localhost:8081/readyz
-curl -sf http://localhost:9092/readyz
+curl -sf http://localhost:8080/health
+curl -sf http://localhost:8080/ready
+curl -sf http://localhost:8081/health
+curl -sf http://localhost:8081/ready
+curl -sf http://localhost:9092/health
+curl -sf http://localhost:9092/ready
 ```
 
 ## Configuration

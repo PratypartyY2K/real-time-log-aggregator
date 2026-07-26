@@ -600,8 +600,8 @@ rate limits, and service/environment authorization on the read path.
 flowchart LR
     S["Services"] -->|"/metrics"| P["Prometheus"]
     P --> G["Grafana dashboards"]
-    S --> H["healthz: process liveness"]
-    S --> R["readyz: dependency readiness"]
+    S --> H["health: process liveness"]
+    S --> R["ready: dependency readiness"]
     J["JetStream state"] --> S
     C["ClickHouse shard probes"] --> S
 ```
