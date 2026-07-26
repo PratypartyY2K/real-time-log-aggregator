@@ -66,10 +66,26 @@ func Run(ctx context.Context, logger app.Logger, cfg config.Config, metrics *Met
 		if receivedAt, parseErr := time.Parse(time.RFC3339Nano, batch.ReceivedAt); parseErr == nil {
 			metrics.ObserveEndToEnd(result, receivedAt, completedAt)
 		}
+		if err != nil {
+			logger.Error(
+				"processor failed to handle batch",
+				"operation", "process_batch",
+				"error", err,
+				"result", result,
+				"request_id", batch.RequestID,
+				"correlation_id", batch.CorrelationID,
+				"trace_id", batch.TraceID,
+				"tenant_id", batch.TenantID,
+				"schema_version", batch.SchemaVersion,
+				"service", batch.Service,
+				"env", batch.Env,
+				"source", batch.Source,
+				"log_count", len(batch.Logs),
+				"duration_ms", completedAt.Sub(start).Milliseconds(),
+			)
+		}
 		return err
-	}, func(_ context.Context, err error) {
-		logger.Error("processor failed to handle batch", "error", err)
-	})
+	}, nil)
 }
 
 type AlertRuleStore interface {
@@ -109,9 +125,14 @@ func handleBatchWithEvaluator(ctx context.Context, logger app.Logger, writer Log
 	if alreadyProcessed {
 		logger.Info(
 			"processor skipped replayed batch",
+			"operation", "dedupe_check",
 			"request_id", batch.RequestID,
+			"correlation_id", batch.CorrelationID,
+			"trace_id", batch.TraceID,
 			"fingerprint", batch.Fingerprint,
 			"tenant_id", batch.TenantID,
+			"service", batch.Service,
+			"env", batch.Env,
 		)
 		return nil
 	}
@@ -142,6 +163,11 @@ func handleBatchWithEvaluator(ctx context.Context, logger app.Logger, writer Log
 	for _, change := range stateChanges {
 		logger.Info(
 			"processor alert state updated",
+			"operation", "sync_alert_state",
+			"request_id", batch.RequestID,
+			"correlation_id", batch.CorrelationID,
+			"trace_id", batch.TraceID,
+			"tenant_id", batch.TenantID,
 			"rule_id", change.RuleID,
 			"rule_name", change.RuleName,
 			"dedupe_key", change.DedupeKey,
@@ -156,6 +182,7 @@ func handleBatchWithEvaluator(ctx context.Context, logger app.Logger, writer Log
 
 	logger.Info(
 		"processor persisted batch",
+		"operation", "process_batch",
 		"request_id", batch.RequestID,
 		"correlation_id", batch.CorrelationID,
 		"trace_id", batch.TraceID,
