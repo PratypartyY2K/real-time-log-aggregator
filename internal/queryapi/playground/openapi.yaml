@@ -97,16 +97,29 @@ paths:
       summary: Get query API status
       responses:
         "200": { description: Service status }
-  /healthz:
+  /health:
     get:
       security: []
       summary: Liveness probe
       responses:
         "200": { description: Service is alive }
-  /readyz:
+  /ready:
     get:
       security: []
       summary: Dependency readiness probe
+      responses:
+        "200": { description: Dependencies are ready }
+        "503": { description: One or more dependencies are unavailable }
+  /healthz:
+    get:
+      security: []
+      summary: Compatibility liveness probe
+      responses:
+        "200": { description: Service is alive }
+  /readyz:
+    get:
+      security: []
+      summary: Compatibility dependency readiness probe
       responses:
         "200": { description: Dependencies are ready }
         "503": { description: One or more dependencies are unavailable }
