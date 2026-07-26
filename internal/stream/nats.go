@@ -19,29 +19,35 @@ type JetStreamPublisher struct {
 }
 
 type JetStreamConsumer struct {
-	sub         *nats.Subscription
-	fetch       func(int, ...nats.PullOpt) ([]*nats.Msg, error)
-	dlq         *DLQPublisher
-	dlqObserver DLQObserver
-	maxDeliver  uint64
-	retryDelay  time.Duration
+	sub           *nats.Subscription
+	fetch         func(int, ...nats.PullOpt) ([]*nats.Msg, error)
+	dlq           *DLQPublisher
+	dlqObserver   DLQObserver
+	retryObserver RetryObserver
+	maxDeliver    uint64
+	retryDelay    time.Duration
 }
 
 type DLQObserver interface {
 	ObserveDLQ(reason, outcome string)
 }
 
+type RetryObserver interface {
+	ObserveRetry(reason string)
+}
+
 type ConsumerOptions struct {
-	URL         string
-	StreamName  string
-	Subject     string
-	DLQSubject  string
-	Durable     string
-	MaxDeliver  int
-	ReplayMode  string
-	ReplaySeq   uint64
-	ReplayTime  string
-	DLQObserver DLQObserver
+	URL           string
+	StreamName    string
+	Subject       string
+	DLQSubject    string
+	Durable       string
+	MaxDeliver    int
+	ReplayMode    string
+	ReplaySeq     uint64
+	ReplayTime    string
+	DLQObserver   DLQObserver
+	RetryObserver RetryObserver
 }
 
 const consumerRetryDelay = 5 * time.Second
@@ -162,12 +168,13 @@ func ConnectJetStreamConsumer(opts ConsumerOptions) (*nats.Conn, *JetStreamConsu
 	}
 
 	return nc, &JetStreamConsumer{
-		sub:         sub,
-		fetch:       sub.Fetch,
-		dlq:         &DLQPublisher{js: js, subject: opts.DLQSubject},
-		dlqObserver: opts.DLQObserver,
-		maxDeliver:  uint64(opts.MaxDeliver),
-		retryDelay:  connectionRetryDelay,
+		sub:           sub,
+		fetch:         sub.Fetch,
+		dlq:           &DLQPublisher{js: js, subject: opts.DLQSubject},
+		dlqObserver:   opts.DLQObserver,
+		retryObserver: opts.RetryObserver,
+		maxDeliver:    uint64(opts.MaxDeliver),
+		retryDelay:    connectionRetryDelay,
 	}, nil
 }
 
@@ -219,7 +226,7 @@ func (c *JetStreamConsumer) Consume(ctx context.Context, handler func(context.Co
 		}
 
 		for _, msg := range msgs {
-			if err := consumeMessage(ctx, natsConsumableMessage{msg: msg}, c.dlq, c.maxDeliver, handler, onError, c.dlqObserver); err != nil {
+			if err := consumeMessage(ctx, natsConsumableMessage{msg: msg}, c.dlq, c.maxDeliver, handler, onError, c.dlqObserver, c.retryObserver); err != nil {
 				return err
 			}
 		}
@@ -264,12 +271,9 @@ func consumeMessage(
 	maxDeliver uint64,
 	handler func(context.Context, contracts.LogsRawEvent) error,
 	onError consumeErrorHandler,
-	dlqObservers ...DLQObserver,
+	dlqObserver DLQObserver,
+	retryObserver RetryObserver,
 ) error {
-	var dlqObserver DLQObserver
-	if len(dlqObservers) > 0 {
-		dlqObserver = dlqObservers[0]
-	}
 	var event contracts.LogsRawEvent
 	if err := json.Unmarshal(msg.Payload(), &event); err != nil {
 		dlqErr := publishDLQ(ctx, dlqPublisher, msg.Payload(), nil, msg.DeliveryCount(), "malformed_payload", err)
@@ -312,6 +316,7 @@ func consumeMessage(
 		if nakErr := msg.NakWithDelay(consumerRetryDelay); nakErr != nil {
 			return fmt.Errorf("nak message for retry: %w", nakErr)
 		}
+		observeRetry(retryObserver, "retryable_error")
 		reportConsumeError(ctx, onError, fmt.Errorf("handle message: %w", err))
 		return nil
 	}
@@ -321,6 +326,12 @@ func consumeMessage(
 	}
 
 	return nil
+}
+
+func observeRetry(observer RetryObserver, reason string) {
+	if observer != nil {
+		observer.ObserveRetry(reason)
+	}
 }
 
 func observeDLQPublication(observer DLQObserver, publisher dlqPublisher, reason string, err error) {

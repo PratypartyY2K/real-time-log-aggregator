@@ -20,7 +20,7 @@ func TestConsumeMessageAcksSuccessfulHandler(t *testing.T) {
 	err := consumeMessage(context.Background(), msg, nil, 5, func(_ context.Context, event contracts.LogsRawEvent) error {
 		handled = event
 		return nil
-	}, nil)
+	}, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -45,11 +45,12 @@ func TestConsumeMessageNaksRetryableHandlerError(t *testing.T) {
 	}
 
 	var reported error
+	retries := &stubRetryObserver{}
 	err := consumeMessage(context.Background(), msg, nil, 5, func(context.Context, contracts.LogsRawEvent) error {
 		return errors.New("clickhouse unavailable")
 	}, func(_ context.Context, consumeErr error) {
 		reported = consumeErr
-	})
+	}, nil, retries)
 	if err != nil {
 		t.Fatalf("expected loop to continue after handler error, got %v", err)
 	}
@@ -65,6 +66,9 @@ func TestConsumeMessageNaksRetryableHandlerError(t *testing.T) {
 	if reported == nil || !strings.Contains(reported.Error(), "clickhouse unavailable") {
 		t.Fatalf("expected reported handler error, got %v", reported)
 	}
+	if len(retries.observations) != 1 || retries.observations[0] != "retryable_error" {
+		t.Fatalf("expected retry metric observation, got %#v", retries.observations)
+	}
 }
 
 func TestConsumeMessageTermsMalformedPayload(t *testing.T) {
@@ -78,7 +82,7 @@ func TestConsumeMessageTermsMalformedPayload(t *testing.T) {
 		return nil
 	}, func(_ context.Context, consumeErr error) {
 		reported = consumeErr
-	}, observer)
+	}, observer, nil)
 	if err != nil {
 		t.Fatalf("expected malformed payload to be terminated without stopping loop, got %v", err)
 	}
@@ -111,7 +115,7 @@ func TestConsumeMessageTermsPoisonBatchToDLQ(t *testing.T) {
 
 	err := consumeMessage(context.Background(), msg, dlq, 5, func(context.Context, contracts.LogsRawEvent) error {
 		return MarkPoisonBatch(errors.New("invalid logs.raw event"))
-	}, nil)
+	}, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("expected poison batch to be handled without stopping loop, got %v", err)
 	}
@@ -135,7 +139,7 @@ func TestConsumeMessageTermsRetryExhaustedBatchToDLQ(t *testing.T) {
 
 	err := consumeMessage(context.Background(), msg, dlq, 5, func(context.Context, contracts.LogsRawEvent) error {
 		return errors.New("clickhouse unavailable")
-	}, nil)
+	}, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("expected retry exhausted batch to be handled without stopping loop, got %v", err)
 	}
@@ -200,6 +204,14 @@ type stubDLQObserver struct {
 
 func (s *stubDLQObserver) ObserveDLQ(reason, outcome string) {
 	s.observations = append(s.observations, reason+":"+outcome)
+}
+
+type stubRetryObserver struct {
+	observations []string
+}
+
+func (s *stubRetryObserver) ObserveRetry(reason string) {
+	s.observations = append(s.observations, reason)
 }
 
 func (p *stubDLQPublisher) Publish(_ context.Context, event contracts.LogsDLQEvent) error {

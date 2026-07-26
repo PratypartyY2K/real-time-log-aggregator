@@ -27,7 +27,7 @@ func TestChaosProcessorKillRedeliversUnackedBatchAfterRecovery(t *testing.T) {
 			t.Fatalf("unexpected recovered request id %q", event.RequestID)
 		}
 		return nil
-	}, nil)
+	}, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("process redelivered batch after restart: %v", err)
 	}
