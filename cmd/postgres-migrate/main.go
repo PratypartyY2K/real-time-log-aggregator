@@ -20,7 +20,7 @@ func main() {
 	}
 	defer db.Close()
 
-	if err := db.Ping(); err != nil {
+	if err := db.PingContext(context.Background()); err != nil {
 		log.Fatal(err)
 	}
 

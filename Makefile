@@ -3,7 +3,7 @@ GOFMT ?= gofmt
 DOCKER ?= docker
 IMAGE_PREFIX ?= logagg
 
-.PHONY: build cli docker-ingest docker-processor docker-query docker-images migrate-postgres run-ingest run-query run-processor fmt fmt-check test integration-test e2e-test functional-test performance-test query-benchmarks chaos-test validate-repository distributed-integration ci
+.PHONY: build cli docker-ingest docker-processor docker-query docker-images migrate migrate-postgres migrate-clickhouse postgres-migrate run-ingest run-query run-processor fmt fmt-check test integration-test e2e-test functional-test performance-test query-benchmarks chaos-test validate-repository distributed-integration ci
 
 build:
 	$(GO) build ./...
@@ -22,7 +22,16 @@ docker-query:
 
 docker-images: docker-ingest docker-processor docker-query
 
+migrate:
+	$(GO) run ./cmd/migrate
+
 migrate-postgres:
+	$(GO) run ./cmd/migrate -target=postgres
+
+migrate-clickhouse:
+	$(GO) run ./cmd/migrate -target=clickhouse
+
+postgres-migrate:
 	$(GO) run ./cmd/postgres-migrate
 
 run-ingest:
