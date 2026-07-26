@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/PratypartyY2K/real-time-log-aggregator/internal/contracts"
+	"github.com/PratypartyY2K/real-time-log-aggregator/internal/logging"
+	"github.com/nats-io/nats.go"
 )
 
 func TestConsumeMessageAcksSuccessfulHandler(t *testing.T) {
@@ -35,6 +37,48 @@ func TestConsumeMessageAcksSuccessfulHandler(t *testing.T) {
 	}
 	if msg.termCalls != 0 {
 		t.Fatalf("expected no term, got %d", msg.termCalls)
+	}
+}
+
+func TestConsumeMessageRestoresCorrelationFromHeaders(t *testing.T) {
+	msg := &stubConsumableMessage{
+		payload:       []byte(`{"schema_version":"logs.raw.v1","request_id":"batch-123","fingerprint":"batch-123","received_at":"2026-07-09T20:12:07Z","tenant_id":1,"service":"checkout","env":"prod","source":"app","logs":[{"timestamp":"2026-07-07T16:00:00Z","level":"error","message":"database timeout"}]}`),
+		deliveryCount: 1,
+		header: nats.Header{
+			logging.RequestIDHeader: []string{"http-req-123"},
+			logging.TraceIDHeader:   []string{"0af7651916cd43dd8448eb211c80319c"},
+		},
+	}
+
+	var handled contracts.LogsRawEvent
+	err := consumeMessage(context.Background(), msg, nil, 5, func(_ context.Context, event contracts.LogsRawEvent) error {
+		handled = event
+		return nil
+	}, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if handled.CorrelationID != "http-req-123" || handled.TraceID != "0af7651916cd43dd8448eb211c80319c" {
+		t.Fatalf("expected correlation headers to be applied, got correlation_id=%q trace_id=%q", handled.CorrelationID, handled.TraceID)
+	}
+}
+
+func TestConsumeMessageFallsBackCorrelationToRequestID(t *testing.T) {
+	msg := &stubConsumableMessage{
+		payload:       []byte(`{"schema_version":"logs.raw.v1","request_id":"batch-123","fingerprint":"batch-123","received_at":"2026-07-09T20:12:07Z","tenant_id":1,"service":"checkout","env":"prod","source":"app","logs":[{"timestamp":"2026-07-07T16:00:00Z","level":"error","message":"database timeout"}]}`),
+		deliveryCount: 1,
+	}
+
+	var handled contracts.LogsRawEvent
+	err := consumeMessage(context.Background(), msg, nil, 5, func(_ context.Context, event contracts.LogsRawEvent) error {
+		handled = event
+		return nil
+	}, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if handled.CorrelationID != "batch-123" {
+		t.Fatalf("expected request id fallback correlation, got %q", handled.CorrelationID)
 	}
 }
 
@@ -156,6 +200,7 @@ func TestConsumeMessageTermsRetryExhaustedBatchToDLQ(t *testing.T) {
 
 type stubConsumableMessage struct {
 	payload       []byte
+	header        nats.Header
 	deliveryCount uint64
 	ackErr        error
 	nakErr        error
@@ -168,6 +213,10 @@ type stubConsumableMessage struct {
 
 func (m *stubConsumableMessage) Payload() []byte {
 	return m.payload
+}
+
+func (m *stubConsumableMessage) Header() nats.Header {
+	return m.header
 }
 
 func (m *stubConsumableMessage) Ack() error {

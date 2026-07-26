@@ -9,6 +9,7 @@ import (
 
 	"github.com/PratypartyY2K/real-time-log-aggregator/internal/alerts"
 	"github.com/PratypartyY2K/real-time-log-aggregator/internal/contracts"
+	"github.com/PratypartyY2K/real-time-log-aggregator/internal/logging"
 )
 
 func TestHandleBatchAcceptsPublishedBatch(t *testing.T) {
@@ -60,6 +61,34 @@ func TestHandleBatchAcceptsPublishedBatch(t *testing.T) {
 	}
 	if ruleStore.dispatchCalls != 1 {
 		t.Fatalf("expected notification dispatch, got %d", ruleStore.dispatchCalls)
+	}
+}
+
+func TestHandleBatchUsesRequestIDAsCorrelationFallback(t *testing.T) {
+	logger := &stubLogger{}
+	writer := &stubLogWriter{}
+	batch := contracts.LogsRawEvent{
+		SchemaVersion: contracts.LogsRawSchemaVersion,
+		RequestID:     "batch-req-123",
+		Fingerprint:   "batch-req-123",
+		ReceivedAt:    "2026-07-09T20:12:07Z",
+		TenantID:      42,
+		Service:       "checkout",
+		Env:           "prod",
+		Source:        "app",
+		Logs: []contracts.LogsRawRecord{
+			{Timestamp: "2026-07-07T16:00:00Z", Level: "error", Message: "database timeout"},
+		},
+	}
+
+	if err := handleBatch(context.Background(), logger, writer, nil, &stubNotificationDispatcher{}, nil, batch); err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if got := logging.RequestIDFromContext(writer.alreadyProcessedCtx); got != "batch-req-123" {
+		t.Fatalf("expected request id fallback in already-processed context, got %q", got)
+	}
+	if got := logging.RequestIDFromContext(writer.writeCtx); got != "batch-req-123" {
+		t.Fatalf("expected request id fallback in write context, got %q", got)
 	}
 }
 
@@ -501,6 +530,8 @@ func (l *stubLogger) Error(_ string, _ ...any) {}
 
 type stubLogWriter struct {
 	lastBatch              []NormalizedLogRecord
+	alreadyProcessedCtx    context.Context
+	writeCtx               context.Context
 	calls                  int
 	err                    error
 	alreadyProcessed       bool
@@ -508,13 +539,15 @@ type stubLogWriter struct {
 	alreadyProcessedChecks int
 }
 
-func (w *stubLogWriter) AlreadyProcessed(_ context.Context, _ uint64, _ string) (bool, error) {
+func (w *stubLogWriter) AlreadyProcessed(ctx context.Context, _ uint64, _ string) (bool, error) {
 	w.alreadyProcessedChecks++
+	w.alreadyProcessedCtx = ctx
 	return w.alreadyProcessed, w.alreadyProcessedErr
 }
 
-func (w *stubLogWriter) WriteBatch(_ context.Context, batch []NormalizedLogRecord) error {
+func (w *stubLogWriter) WriteBatch(ctx context.Context, batch []NormalizedLogRecord) error {
 	w.calls++
+	w.writeCtx = ctx
 	w.lastBatch = append([]NormalizedLogRecord(nil), batch...)
 	return w.err
 }

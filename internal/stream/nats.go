@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/PratypartyY2K/real-time-log-aggregator/internal/contracts"
+	"github.com/PratypartyY2K/real-time-log-aggregator/internal/logging"
 	"github.com/nats-io/nats.go"
 )
 
@@ -61,6 +62,7 @@ type dlqPublisher interface {
 
 type consumableMessage interface {
 	Payload() []byte
+	Header() nats.Header
 	Ack() error
 	NakWithDelay(time.Duration) error
 	Term() error
@@ -73,6 +75,10 @@ type natsConsumableMessage struct {
 
 func (m natsConsumableMessage) Payload() []byte {
 	return m.msg.Data
+}
+
+func (m natsConsumableMessage) Header() nats.Header {
+	return m.msg.Header
 }
 
 func (m natsConsumableMessage) Ack() error {
@@ -194,6 +200,12 @@ func (p *JetStreamPublisher) Publish(ctx context.Context, event contracts.LogsRa
 		msgID = event.RequestID
 	}
 	msg.Header.Set(nats.MsgIdHdr, msgID)
+	if event.CorrelationID != "" {
+		msg.Header.Set(logging.RequestIDHeader, event.CorrelationID)
+	}
+	if event.TraceID != "" {
+		msg.Header.Set(logging.TraceIDHeader, event.TraceID)
+	}
 
 	if _, err := p.js.PublishMsg(msg, nats.Context(ctx)); err != nil {
 		return fmt.Errorf("publish logs.raw event: %w", err)
@@ -287,6 +299,7 @@ func consumeMessage(
 		reportConsumeError(ctx, onError, fmt.Errorf("decode message: %w", err))
 		return nil
 	}
+	applyCorrelationHeaders(&event, msg.Header())
 
 	if err := handler(ctx, event); err != nil {
 		if isPoisonBatchError(err) {
@@ -326,6 +339,21 @@ func consumeMessage(
 	}
 
 	return nil
+}
+
+func applyCorrelationHeaders(event *contracts.LogsRawEvent, header nats.Header) {
+	if event == nil {
+		return
+	}
+	if event.CorrelationID == "" {
+		event.CorrelationID = strings.TrimSpace(header.Get(logging.RequestIDHeader))
+	}
+	if event.TraceID == "" {
+		event.TraceID = strings.TrimSpace(header.Get(logging.TraceIDHeader))
+	}
+	if event.CorrelationID == "" {
+		event.CorrelationID = event.RequestID
+	}
 }
 
 func observeRetry(observer RetryObserver, reason string) {

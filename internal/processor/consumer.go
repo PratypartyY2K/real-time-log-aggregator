@@ -108,7 +108,11 @@ func handleBatchWithEvaluator(ctx context.Context, logger app.Logger, writer Log
 	if err := batch.Validate(); err != nil {
 		return stream.MarkPoisonBatch(fmt.Errorf("invalid logs.raw event: %w", err))
 	}
-	ctx = logging.WithRequestID(ctx, batch.CorrelationID)
+	correlationID := strings.TrimSpace(batch.CorrelationID)
+	if correlationID == "" {
+		correlationID = batch.RequestID
+	}
+	ctx = logging.WithRequestID(ctx, correlationID)
 	ctx = logging.WithTraceID(ctx, batch.TraceID)
 
 	normalized, err := normalizeBatch(batch)
