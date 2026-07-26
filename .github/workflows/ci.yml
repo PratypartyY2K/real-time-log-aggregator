@@ -50,7 +50,7 @@ jobs:
       - name: Validate Compose, ClickHouse XML, and documentation
         run: make validate-repository
 
-  integration-pipeline:
+  integration-and-alert-history:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -58,7 +58,7 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - name: Run integration and end-to-end pipeline
+      - name: Run ingest, processor, query, and alert history integration tests
         run: make functional-test
 
   docker-images:
@@ -82,7 +82,7 @@ jobs:
           cache-from: type=gha,scope=${{ matrix.service }}
           cache-to: type=gha,mode=max,scope=${{ matrix.service }}
 
-  performance-tools:
+  load-and-performance-tools:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -90,10 +90,10 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - name: Verify load profiles
+      - name: Verify burst, sustained, and alert-oriented load profiles
         run: make performance-test
       - name: Smoke-test query benchmarks
-        run: go test ./internal/queryapi -run '^$' -bench BenchmarkBuildLogsQuery -benchtime=1x
+        run: make query-benchmarks
 
   lightweight-chaos:
     runs-on: ubuntu-latest

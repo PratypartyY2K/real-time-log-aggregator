@@ -3,7 +3,7 @@ GOFMT ?= gofmt
 DOCKER ?= docker
 IMAGE_PREFIX ?= logagg
 
-.PHONY: build cli docker-ingest docker-processor docker-query docker-images migrate migrate-postgres migrate-clickhouse postgres-migrate run-ingest run-query run-processor fmt fmt-check test integration-test e2e-test functional-test performance-test query-benchmarks chaos-test validate-repository distributed-integration ci
+.PHONY: build cli docker-ingest docker-processor docker-query docker-images migrate migrate-postgres migrate-clickhouse postgres-migrate run-ingest run-query run-processor fmt fmt-check test integration-test e2e-test alert-history-test functional-test performance-test query-benchmarks chaos-test validate-repository distributed-integration ci
 
 build:
 	$(GO) build ./...
@@ -67,10 +67,13 @@ integration-test:
 e2e-test:
 	$(GO) test ./internal/processor -run TestEndToEndIngestProcessQueryPipeline -count=1
 
-functional-test: integration-test e2e-test
+alert-history-test:
+	$(GO) test ./internal/queryapi -run 'TestAlertHistoryHandler' -count=1
+
+functional-test: integration-test e2e-test alert-history-test
 
 performance-test:
-	$(GO) test ./cmd/loadtest -count=1
+	$(GO) test ./cmd/loadtest -run 'Test(RunBurst|RunSustained|BuildLogsCanIncludeStableAlertErrorCode)' -count=1
 
 query-benchmarks:
 	$(GO) test ./internal/queryapi -run '^$$' -bench 'Benchmark(QueryLogsHandler|BuildLogsQuery)$$' -benchmem
