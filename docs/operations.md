@@ -276,6 +276,9 @@ status, attempt count, next retry, last error, and sent time.
 Configuration:
 
 - `NOTIFICATION_POLL_INTERVAL` (default `5s`)
+- `NOTIFICATION_WEBHOOK_URL` optional. When set, the processor posts alert
+  notifications to this endpoint as JSON and applies the existing retry policy
+  to request failures and non-2xx responses.
 - `NOTIFICATION_RETRY_BASE` (default `30s`)
 - `NOTIFICATION_RETRY_MAX` (default `30m`)
 - `NOTIFICATION_LEASE_DURATION` (default `2m`)

@@ -14,7 +14,7 @@ import (
 	"github.com/PratypartyY2K/real-time-log-aggregator/internal/stream"
 )
 
-func Run(ctx context.Context, logger app.Logger, cfg config.Config, metrics *Metrics, alertMetrics AlertMetrics, ruleStore AlertRuleStore) error {
+func Run(ctx context.Context, logger app.Logger, cfg config.Config, metrics *Metrics, alertMetrics AlertMetrics, ruleStore AlertRuleStore, dispatchers ...alerts.NotificationDispatcher) error {
 	nc, consumer, err := stream.ConnectJetStreamConsumer(stream.ConsumerOptions{
 		URL:           cfg.NATSURL,
 		StreamName:    cfg.NATSStream,
@@ -36,6 +36,9 @@ func Run(ctx context.Context, logger app.Logger, cfg config.Config, metrics *Met
 	writer := NewClickHouseWriter(cfg.ClickHouseDSN)
 	writer.metrics = metrics
 	dispatcher := alerts.NewLogDispatcher(logger)
+	if len(dispatchers) > 0 && dispatchers[0] != nil {
+		dispatcher = dispatchers[0]
+	}
 	ruleEngine := alerts.NewEngine()
 	if schedulerRuleStore, ok := ruleStore.(scheduledRuleStore); ok && cfg.AlertEvaluationInterval > 0 {
 		go RunAlertScheduler(ctx, logger, writer, schedulerRuleStore, dispatcher, alertMetrics, SchedulerOptions{

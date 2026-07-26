@@ -31,6 +31,10 @@ func main() {
 	alertMetrics := alerts.NewMetricsCollector(cfg.ServiceName)
 	writer := processor.NewClickHouseWriter(cfg.ClickHouseDSN)
 	ruleStore := alerts.NewPostgresStore(db)
+	dispatcher := alerts.NewLogDispatcher(nil)
+	if cfg.NotificationWebhookURL != "" {
+		dispatcher = alerts.NewWebhookDispatcher(cfg.NotificationWebhookURL, nil)
+	}
 	queueMonitor := stream.NewQueueMonitor(cfg.NATSURL, cfg.NATSStream, cfg.NATSDurable)
 	probeMux := http.NewServeMux()
 	healthHandler := readiness.HealthHandler()
@@ -47,7 +51,7 @@ func main() {
 	probeMux.Handle("/ready", readyHandler)
 	probeMux.Handle("/readyz", readyHandler)
 	service := worker.New(cfg, func(ctx context.Context, logger app.Logger) error {
-		return processor.Run(ctx, logger, cfg, processorMetrics, alertMetrics, ruleStore)
+		return processor.Run(ctx, logger, cfg, processorMetrics, alertMetrics, ruleStore, dispatcher)
 	}, worker.WithMetricsHandler(probeMux))
 	app.Run(service)
 }
