@@ -282,6 +282,9 @@ Important metric families:
 - `logagg_processor_batches_total` and `logagg_processor_logs_total`
 - `logagg_processor_end_to_end_latency_seconds` (histogram measured from the
   ingest event's `received_at` through processor completion)
+- `logagg_processor_retries_total`
+- `logagg_clickhouse_write_duration_seconds` and
+  `logagg_clickhouse_write_errors_total`
 - `logagg_dlq_publications_total`
 - `logagg_alert_state_changes_total`
 
@@ -289,8 +292,11 @@ Ingest throughput should be calculated with `rate()` over the accepted ingest
 counters. Query latency percentiles use
 `logagg_http_request_duration_seconds_bucket` filtered to `service="query-api"`
 and `histogram_quantile()`. Query failures use `logagg_http_requests_total`
-filtered to the same service and non-success HTTP status codes. DLQ publication
-rate is available by both `reason` and `outcome`, including failed DLQ writes.
+filtered to the same service and non-success HTTP status codes. Processor retry
+rate uses `logagg_processor_retries_total`; ClickHouse write p95 and write
+failure rate use `logagg_clickhouse_write_duration_seconds_bucket` and
+`logagg_clickhouse_write_errors_total`. DLQ publication rate is available by
+both `reason` and `outcome`, including failed DLQ writes.
 
 ## Failure drills
 
