@@ -16,6 +16,7 @@ The machine-readable OpenAPI 3.1 contract is served by `query-api` at
 - [`GET /ready`](#get-ready)
 - [`GET /v1/logs`](#get-v1logs)
 - [`GET /v1/graph`](#get-v1graph)
+- [Alert rule CRUD](#alert-rule-crud)
 - [Alert history and delivery tracking](#alert-history-and-delivery-tracking)
 - [`GET /v1/analytics`](#get-v1analytics)
 - [`POST /v1/query`](#post-v1query)
@@ -223,6 +224,35 @@ Example:
 ```
 
 The response contains `nodes`, `edges`, and `sessions`. Each group includes its correlation kind, user ID when available, trace IDs, participating services, time bounds, log count, and error count. User-only groups are lower-confidence flows because multiple requests by the same user inside the query window may be combined. Records without any supported correlation identifier contribute to service-node totals but cannot form an inferred flow.
+
+## Alert rule CRUD
+
+All alert rule write/read APIs require `X-API-Key` and derive tenant scope from
+the key.
+
+- `POST /v1/alerts` creates a rule.
+- `GET /v1/alerts` lists non-deleted rules. Optional filters: `service`,
+  `environment`, `status`, and `limit`.
+- `GET /v1/alerts/{id}` returns one rule.
+- `PATCH /v1/alerts/{id}` updates supplied fields.
+- `DELETE /v1/alerts/{id}` marks the rule as `deleted`.
+
+Example:
+
+```json
+{
+  "service": "payment-api",
+  "environment": "prod",
+  "log_level": "ERROR",
+  "fingerprint": "payment-db-timeout",
+  "name": "payment-api error spike",
+  "rule_type": "count_threshold",
+  "severity": "high",
+  "threshold": "20",
+  "window_seconds": 300,
+  "cooldown_seconds": 600
+}
+```
 
 ## Alert history and delivery tracking
 
