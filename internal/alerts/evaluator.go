@@ -42,7 +42,10 @@ type Trigger struct {
 }
 
 type Filter struct {
+	Service         string            `json:"service"`
+	Environment     string            `json:"environment"`
 	Level           string            `json:"level"`
+	Fingerprint     string            `json:"fingerprint"`
 	Source          string            `json:"source"`
 	Host            string            `json:"host"`
 	TraceID         string            `json:"trace_id"`
@@ -59,6 +62,7 @@ func Evaluate(rule Rule, records []Record) ([]Trigger, error) {
 	if err != nil {
 		return nil, fmt.Errorf("parse filter_json: %w", err)
 	}
+	filter = applyRuleModelFilter(rule, filter)
 
 	groupBy, err := parseGroupBy(rule.GroupByJSON)
 	if err != nil {
@@ -352,6 +356,25 @@ func parseFilter(raw json.RawMessage) (Filter, error) {
 	return filter, nil
 }
 
+func applyRuleModelFilter(rule Rule, filter Filter) Filter {
+	if strings.TrimSpace(rule.Service) != "" {
+		filter.Service = rule.Service
+	}
+	if rule.ServiceName.Valid && strings.TrimSpace(rule.ServiceName.String) != "" {
+		filter.Service = rule.ServiceName.String
+	}
+	if rule.Environment.Valid && strings.TrimSpace(rule.Environment.String) != "" {
+		filter.Environment = rule.Environment.String
+	}
+	if strings.TrimSpace(rule.LogLevel) != "" {
+		filter.Level = rule.LogLevel
+	}
+	if strings.TrimSpace(rule.Fingerprint) != "" {
+		filter.Fingerprint = rule.Fingerprint
+	}
+	return filter
+}
+
 func parseGroupBy(raw json.RawMessage) ([]string, error) {
 	if len(raw) == 0 {
 		return nil, nil
@@ -387,7 +410,16 @@ func parseMetricThreshold(raw string) (float64, error) {
 }
 
 func matchesFilter(record Record, filter Filter) bool {
+	if filter.Service != "" && record.Service != strings.TrimSpace(filter.Service) {
+		return false
+	}
+	if filter.Environment != "" && record.Environment != strings.TrimSpace(filter.Environment) {
+		return false
+	}
 	if filter.Level != "" && record.Level != strings.ToLower(strings.TrimSpace(filter.Level)) {
+		return false
+	}
+	if filter.Fingerprint != "" && record.Fingerprint != strings.TrimSpace(filter.Fingerprint) {
 		return false
 	}
 	if filter.Source != "" && record.Source != strings.ToLower(strings.TrimSpace(filter.Source)) {

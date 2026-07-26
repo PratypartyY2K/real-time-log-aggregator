@@ -176,3 +176,30 @@ func TestEvaluateRejectsNonPositiveThreshold(t *testing.T) {
 		t.Fatal("expected error, got nil")
 	}
 }
+
+func TestEvaluateAppliesExplicitAlertRuleModelFields(t *testing.T) {
+	t.Parallel()
+
+	triggers, err := Evaluate(Rule{
+		ID:          12,
+		Name:        "payment errors",
+		RuleType:    "count_threshold",
+		Severity:    "critical",
+		Service:     "payment-api",
+		LogLevel:    "ERROR",
+		Fingerprint: "db-timeout",
+		Threshold:   "2",
+	}, []Record{
+		{Service: "payment-api", Environment: "prod", Level: "error", Fingerprint: "db-timeout"},
+		{Service: "payment-api", Environment: "prod", Level: "error", Fingerprint: "db-timeout"},
+		{Service: "payment-api", Environment: "prod", Level: "info", Fingerprint: "db-timeout"},
+		{Service: "checkout-api", Environment: "prod", Level: "error", Fingerprint: "db-timeout"},
+		{Service: "payment-api", Environment: "prod", Level: "error", Fingerprint: "other"},
+	})
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if len(triggers) != 1 || triggers[0].MatchCount != 2 {
+		t.Fatalf("unexpected triggers: %+v", triggers)
+	}
+}

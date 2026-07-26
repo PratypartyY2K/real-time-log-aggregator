@@ -13,6 +13,9 @@ type Rule struct {
 	ServiceID       sql.NullInt64
 	ServiceName     sql.NullString
 	Environment     sql.NullString
+	Service         string
+	LogLevel        string
+	Fingerprint     string
 	Owner           sql.NullString
 	Name            string
 	RuleType        string
@@ -45,6 +48,9 @@ SELECT
     ar.service_id,
     svc.name,
     svc.environment,
+    COALESCE(svc.name, ''),
+    COALESCE(ar.log_level, ''),
+    COALESCE(ar.fingerprint, ''),
     svc.owner,
     ar.name,
     ar.rule_type,
@@ -100,6 +106,9 @@ func scanRule(row rowScanner) (Rule, error) {
 		&rule.ServiceID,
 		&rule.ServiceName,
 		&rule.Environment,
+		&rule.Service,
+		&rule.LogLevel,
+		&rule.Fingerprint,
 		&rule.Owner,
 		&rule.Name,
 		&rule.RuleType,

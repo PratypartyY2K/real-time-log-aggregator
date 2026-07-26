@@ -17,6 +17,9 @@ func TestScanRuleMapsFields(t *testing.T) {
 			sql.NullInt64{Int64: 13, Valid: true},
 			sql.NullString{String: "checkout", Valid: true},
 			sql.NullString{String: "prod", Valid: true},
+			"checkout",
+			"error",
+			"fp-123",
 			sql.NullString{String: "ops@example.com", Valid: true},
 			"error spike",
 			"threshold",
@@ -37,6 +40,9 @@ func TestScanRuleMapsFields(t *testing.T) {
 	}
 	if !rule.ServiceName.Valid || rule.ServiceName.String != "checkout" || !rule.Environment.Valid || rule.Environment.String != "prod" || !rule.Owner.Valid || rule.Owner.String != "ops@example.com" {
 		t.Fatalf("unexpected service scope: %+v", rule)
+	}
+	if rule.Service != "checkout" || rule.LogLevel != "error" || rule.Fingerprint != "fp-123" {
+		t.Fatalf("unexpected explicit rule model fields: %+v", rule)
 	}
 	if rule.Name != "error spike" || rule.RuleType != "threshold" || rule.Severity != "critical" {
 		t.Fatalf("unexpected rule metadata: %+v", rule)
