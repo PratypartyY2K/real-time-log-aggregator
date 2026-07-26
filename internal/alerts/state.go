@@ -164,33 +164,28 @@ func reconcileState(rules []Rule, triggers []Trigger, instances []Instance, obse
 		}
 
 		if instance.Status == AlertStatusResolved {
+			lastFiredAt := instance.LastFiredAt
 			instance.Status = AlertStatusActive
 			instance.FirstFiredAt = observedAt
 			instance.LastFiredAt = observedAt
 			instance.ResolvedAt = sql.NullTime{}
 
 			change.Status = AlertStatusActive
-			change.EventType = AlertEventTriggered
 			change.AlertInstanceID = instance.ID
+			cooldown := time.Duration(rule.CooldownSeconds) * time.Second
+			if cooldown > 0 && observedAt.Sub(lastFiredAt) < cooldown {
+				change.EventType = AlertEventSuppressed
+			} else {
+				change.EventType = AlertEventTriggered
+			}
 			plan.upserts = append(plan.upserts, instanceUpsert{instance: instance})
 			changes = append(changes, change)
 			continue
 		}
 
-		cooldown := time.Duration(rule.CooldownSeconds) * time.Second
-		if cooldown > 0 && observedAt.Sub(instance.LastFiredAt) < cooldown {
-			change.Status = AlertStatusActive
-			change.EventType = AlertEventSuppressed
-			change.AlertInstanceID = instance.ID
-			changes = append(changes, change)
-			continue
-		}
-
-		instance.LastFiredAt = observedAt
 		change.Status = AlertStatusActive
-		change.EventType = AlertEventTriggered
+		change.EventType = AlertEventSuppressed
 		change.AlertInstanceID = instance.ID
-		plan.upserts = append(plan.upserts, instanceUpsert{instance: instance})
 		changes = append(changes, change)
 	}
 
