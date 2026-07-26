@@ -26,15 +26,25 @@ type AlertHistoryQuery struct {
 }
 
 type AlertHistoryItem struct {
-	AlertInstanceID int64      `json:"alert_instance_id"`
-	RuleID          int64      `json:"rule_id"`
-	RuleName        string     `json:"rule_name"`
-	Severity        string     `json:"severity"`
-	DedupeKey       string     `json:"dedupe_key"`
-	Status          string     `json:"status"`
-	FirstFiredAt    time.Time  `json:"first_fired_at"`
-	LastFiredAt     time.Time  `json:"last_fired_at"`
-	ResolvedAt      *time.Time `json:"resolved_at,omitempty"`
+	AlertInstanceID    int64                    `json:"alert_instance_id"`
+	RuleID             int64                    `json:"rule_id"`
+	RuleName           string                   `json:"rule_name"`
+	Severity           string                   `json:"severity"`
+	DedupeKey          string                   `json:"dedupe_key"`
+	Status             string                   `json:"status"`
+	TriggeredAt        time.Time                `json:"triggered_at"`
+	FirstFiredAt       time.Time                `json:"first_fired_at"`
+	LastFiredAt        time.Time                `json:"last_fired_at"`
+	ResolvedAt         *time.Time               `json:"resolved_at,omitempty"`
+	TriggeringValue    *float64                 `json:"triggering_value,omitempty"`
+	NotificationResult *AlertNotificationResult `json:"notification_result,omitempty"`
+}
+
+type AlertNotificationResult struct {
+	Status       string     `json:"status"`
+	AttemptCount int        `json:"attempt_count"`
+	LastError    string     `json:"last_error,omitempty"`
+	SentAt       *time.Time `json:"sent_at,omitempty"`
 }
 
 type AlertAuditEntry struct {
@@ -252,12 +262,50 @@ func (s *PostgresAlertHistoryStore) QueryAlertHistory(ctx context.Context, query
 	for rows.Next() {
 		var item AlertHistoryItem
 		var resolved sql.NullTime
-		if err := rows.Scan(&item.AlertInstanceID, &item.RuleID, &item.RuleName, &item.Severity, &item.DedupeKey, &item.Status, &item.FirstFiredAt, &item.LastFiredAt, &resolved); err != nil {
+		var triggeringValue sql.NullFloat64
+		var notificationStatus, notificationLastError sql.NullString
+		var notificationAttemptCount sql.NullInt64
+		var notificationSentAt sql.NullTime
+		if err := rows.Scan(
+			&item.AlertInstanceID,
+			&item.RuleID,
+			&item.RuleName,
+			&item.Severity,
+			&item.DedupeKey,
+			&item.Status,
+			&item.FirstFiredAt,
+			&item.LastFiredAt,
+			&resolved,
+			&triggeringValue,
+			&notificationStatus,
+			&notificationAttemptCount,
+			&notificationLastError,
+			&notificationSentAt,
+		); err != nil {
 			return nil, fmt.Errorf("scan alert history: %w", err)
 		}
+		item.TriggeredAt = item.FirstFiredAt.UTC()
 		if resolved.Valid {
 			value := resolved.Time.UTC()
 			item.ResolvedAt = &value
+		}
+		if triggeringValue.Valid {
+			value := triggeringValue.Float64
+			item.TriggeringValue = &value
+		}
+		if notificationStatus.Valid {
+			result := &AlertNotificationResult{
+				Status:       notificationStatus.String,
+				AttemptCount: int(notificationAttemptCount.Int64),
+			}
+			if notificationLastError.Valid {
+				result.LastError = notificationLastError.String
+			}
+			if notificationSentAt.Valid {
+				value := notificationSentAt.Time.UTC()
+				result.SentAt = &value
+			}
+			item.NotificationResult = result
 		}
 		item.FirstFiredAt = item.FirstFiredAt.UTC()
 		item.LastFiredAt = item.LastFiredAt.UTC()
@@ -302,8 +350,29 @@ func (s *PostgresAlertHistoryStore) QueryAlertAudit(ctx context.Context, query A
 func buildAlertHistorySQL(query AlertHistoryQuery) (string, []any) {
 	var builder strings.Builder
 	builder.WriteString(`SELECT instance.id, rule.id, rule.name, rule.severity, instance.dedupe_key,
-instance.status, instance.first_fired_at, instance.last_fired_at, instance.resolved_at
+instance.status, instance.first_fired_at, instance.last_fired_at, instance.resolved_at,
+trigger_event.triggering_value,
+delivery.status, delivery.attempt_count, delivery.last_error, delivery.sent_at
 FROM alert_instances instance JOIN alert_rules rule ON rule.id = instance.rule_id
+LEFT JOIN LATERAL (
+    SELECT COALESCE(
+        NULLIF(NULLIF(event.payload_json->>'metric_value', ''), '0')::double precision,
+        NULLIF(event.payload_json->>'match_count', '')::double precision
+    ) AS triggering_value
+    FROM alert_events event
+    WHERE event.alert_instance_id = instance.id
+      AND event.event_type IN ('triggered', 'suppressed')
+      AND event.payload_json ? 'metric_value'
+    ORDER BY event.created_at DESC, event.id DESC
+    LIMIT 1
+) trigger_event ON true
+LEFT JOIN LATERAL (
+    SELECT delivery.status, delivery.attempt_count, delivery.last_error, delivery.sent_at
+    FROM notification_deliveries delivery
+    WHERE delivery.alert_instance_id = instance.id
+    ORDER BY delivery.updated_at DESC, delivery.id DESC
+    LIMIT 1
+) delivery ON true
 WHERE rule.tenant_id = $1 AND instance.last_fired_at >= $2 AND instance.first_fired_at < $3 `)
 	args := []any{query.TenantID, query.Start, query.End}
 	appendHistoryFilters(&builder, &args, query, false)

@@ -11,7 +11,21 @@ import (
 )
 
 func TestAlertHistoryHandlerScopesQueryToTenant(t *testing.T) {
-	store := &stubAlertHistoryStore{alerts: []AlertHistoryItem{{AlertInstanceID: 1, RuleID: 2, RuleName: "error rate", Status: "active"}}}
+	triggeringValue := 20.0
+	sentAt := time.Date(2026, 7, 1, 0, 5, 0, 0, time.UTC)
+	store := &stubAlertHistoryStore{alerts: []AlertHistoryItem{{
+		AlertInstanceID: 1,
+		RuleID:          2,
+		RuleName:        "error rate",
+		Status:          "firing",
+		TriggeredAt:     time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+		TriggeringValue: &triggeringValue,
+		NotificationResult: &AlertNotificationResult{
+			Status:       "sent",
+			AttemptCount: 1,
+			SentAt:       &sentAt,
+		},
+	}}}
 	req := tenantRequest(httptest.NewRequest(http.MethodGet, "/v1/alerts/history?start=2026-07-01T00:00:00Z&end=2026-07-02T00:00:00Z&rule_id=2&status=active&limit=25", nil))
 	rec := httptest.NewRecorder()
 	NewAlertHistoryHandler(store).ServeHTTP(rec, req)
@@ -24,6 +38,9 @@ func TestAlertHistoryHandlerScopesQueryToTenant(t *testing.T) {
 	var response map[string]json.RawMessage
 	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil || response["alerts"] == nil {
 		t.Fatalf("unexpected response: %s err=%v", rec.Body.String(), err)
+	}
+	if !strings.Contains(rec.Body.String(), `"triggering_value":20`) || !strings.Contains(rec.Body.String(), `"notification_result"`) {
+		t.Fatalf("expected final history fields, got %s", rec.Body.String())
 	}
 }
 
@@ -71,6 +88,9 @@ func TestAlertHistorySQLAlwaysIncludesTenantPredicate(t *testing.T) {
 	}
 	if historyArgs[0] != uint64(7) || auditArgs[0] != uint64(7) || deliveryArgs[0] != uint64(7) {
 		t.Fatal("expected tenant id as first query argument")
+	}
+	if !strings.Contains(historySQL, "trigger_event.triggering_value") || !strings.Contains(historySQL, "delivery.status") {
+		t.Fatalf("expected final history joins, got %s", historySQL)
 	}
 }
 
