@@ -22,8 +22,8 @@ func TestMetricsCollectorWritesStateChangeCounters(t *testing.T) {
 	if !strings.Contains(output, "logagg_alert_state_changes_total") {
 		t.Fatalf("expected alert state metrics in output, got %s", output)
 	}
-	if !strings.Contains(output, `event_type="triggered"`) || !strings.Contains(output, `status="active"`) {
-		t.Fatalf("expected triggered active labels, got %s", output)
+	if !strings.Contains(output, `event_type="triggered"`) || !strings.Contains(output, `status="firing"`) {
+		t.Fatalf("expected triggered firing labels, got %s", output)
 	}
 	if !strings.Contains(output, `event_type="resolved"`) || !strings.Contains(output, `status="resolved"`) {
 		t.Fatalf("expected resolved labels, got %s", output)

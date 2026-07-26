@@ -11,7 +11,9 @@ import (
 )
 
 const (
-	AlertStatusActive   = "active"
+	AlertStatusInactive = "inactive"
+	AlertStatusFiring   = "firing"
+	AlertStatusActive   = AlertStatusFiring
 	AlertStatusResolved = "resolved"
 
 	AlertEventTriggered  = "triggered"

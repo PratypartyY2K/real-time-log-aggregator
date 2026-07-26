@@ -204,7 +204,11 @@ scale down only after backlog remains near zero.
 
 ## Alert rule evaluation
 
-The processor evaluates active rules over event-time sliding windows. Windows are retained in each processor process and keyed by tenant and rule. Count and pattern rules remain supported; metric rules use these configurations:
+The processor evaluates active rules over event-time sliding windows. New log
+batches are evaluated inline, and the scheduled evaluator also periodically
+queries ClickHouse so alerts can fire or resolve even when no new batch arrives
+for a service. Count and pattern rules remain supported; metric rules use these
+configurations:
 
 - `rate_threshold` compares matching records per second with `threshold`. `window_seconds` must be positive.
 - `percentile_threshold` compares a percentile with `threshold`. Set `filter_json.value_field` to `raw_size_bytes` or `field.<name>`, and set `filter_json.percentile` between 0 and 100.
@@ -237,7 +241,18 @@ VALUES
      '["service"]', 300, 500);
 ```
 
-Triggered event payloads include `metric_value`, `threshold`, `window_seconds`, and, for percentile rules, `percentile` and `value_field`. Sliding-window samples are currently process-local; restarting or independently scaling processors resets or partitions evaluation history.
+Alert instance lifecycle states are:
+
+- `inactive`: no current alert instance for the rule/group.
+- `firing`: the threshold is currently exceeded.
+- `resolved`: a previously firing alert no longer exceeds its threshold.
+
+Triggered event payloads include `metric_value`, `threshold`, `window_seconds`, and, for percentile rules, `percentile` and `value_field`.
+
+Scheduler configuration:
+
+- `ALERT_EVALUATION_INTERVAL`, default `30s`.
+- `ALERT_EVALUATION_MAX_RECORDS`, default `50000`, caps records loaded per rule evaluation window.
 
 ### Notification delivery worker
 

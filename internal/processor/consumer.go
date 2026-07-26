@@ -2,7 +2,6 @@ package processor
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -38,6 +37,13 @@ func Run(ctx context.Context, logger app.Logger, cfg config.Config, metrics *Met
 	writer.metrics = metrics
 	dispatcher := alerts.NewLogDispatcher(logger)
 	ruleEngine := alerts.NewEngine()
+	if schedulerRuleStore, ok := ruleStore.(scheduledRuleStore); ok && cfg.AlertEvaluationInterval > 0 {
+		go RunAlertScheduler(ctx, logger, writer, schedulerRuleStore, dispatcher, alertMetrics, SchedulerOptions{
+			Interval:   cfg.AlertEvaluationInterval,
+			MaxRecords: cfg.AlertEvaluationMaxRecords,
+			Evaluator:  ruleEngine.Evaluate,
+		})
+	}
 	if deliveryStore, ok := ruleStore.(alerts.DeliveryBatchStore); ok {
 		go alerts.RunDeliveryWorker(ctx, logger, deliveryStore, dispatcher, alerts.DeliveryPolicy{
 			WorkerID:       alerts.NewDeliveryWorkerID(cfg.ServiceName),
@@ -218,29 +224,9 @@ func evaluateAlertRules(rules []alerts.Rule, records []NormalizedLogRecord, eval
 	if len(evaluators) > 0 && evaluators[0] != nil {
 		evaluator = evaluators[0]
 	}
-	alertRecords := make([]alerts.Record, 0, len(records))
-	for _, record := range records {
-		fields := map[string]any{}
-		if record.FieldsJSON != "" {
-			if err := json.Unmarshal([]byte(record.FieldsJSON), &fields); err != nil {
-				return nil, fmt.Errorf("decode normalized fields_json: %w", err)
-			}
-		}
-		alertRecords = append(alertRecords, alerts.Record{
-			Timestamp:    record.Timestamp,
-			TenantID:     record.TenantID,
-			Service:      record.Service,
-			Environment:  record.Environment,
-			Source:       record.Source,
-			Host:         record.Host,
-			Level:        record.Level,
-			TraceID:      record.TraceID,
-			Fingerprint:  record.Fingerprint,
-			Message:      record.Message,
-			Fields:       fields,
-			IngestID:     record.IngestID,
-			RawSizeBytes: record.RawSizeBytes,
-		})
+	alertRecords, err := recordsFromNormalized(records)
+	if err != nil {
+		return nil, err
 	}
 
 	triggers := make([]alerts.Trigger, 0)

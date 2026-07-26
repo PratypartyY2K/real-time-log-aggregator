@@ -24,6 +24,8 @@ func TestLoadParsesNotificationDeliverySettings(t *testing.T) {
 	t.Setenv("NOTIFICATION_LEASE_DURATION", "45s")
 	t.Setenv("NOTIFICATION_MAX_ATTEMPTS", "8")
 	t.Setenv("NOTIFICATION_BATCH_SIZE", "75")
+	t.Setenv("ALERT_EVALUATION_INTERVAL", "10s")
+	t.Setenv("ALERT_EVALUATION_MAX_RECORDS", "25000")
 
 	cfg := Load("processor", "")
 	if cfg.NotificationPollInterval != 2*time.Second ||
@@ -31,7 +33,9 @@ func TestLoadParsesNotificationDeliverySettings(t *testing.T) {
 		cfg.NotificationRetryMax != 10*time.Minute ||
 		cfg.NotificationLeaseDuration != 45*time.Second ||
 		cfg.NotificationMaxAttempts != 8 ||
-		cfg.NotificationBatchSize != 75 {
+		cfg.NotificationBatchSize != 75 ||
+		cfg.AlertEvaluationInterval != 10*time.Second ||
+		cfg.AlertEvaluationMaxRecords != 25000 {
 		t.Fatalf("unexpected notification config: %+v", cfg)
 	}
 }

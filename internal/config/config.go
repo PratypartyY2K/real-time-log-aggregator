@@ -34,6 +34,8 @@ type Config struct {
 	NotificationLeaseDuration time.Duration
 	NotificationMaxAttempts   int
 	NotificationBatchSize     int
+	AlertEvaluationInterval   time.Duration
+	AlertEvaluationMaxRecords int
 }
 
 func Load(defaultServiceName, defaultHTTPAddr string) Config {
@@ -64,6 +66,8 @@ func Load(defaultServiceName, defaultHTTPAddr string) Config {
 		NotificationLeaseDuration: envOrDefaultDuration("NOTIFICATION_LEASE_DURATION", 2*time.Minute),
 		NotificationMaxAttempts:   envOrDefaultInt("NOTIFICATION_MAX_ATTEMPTS", 5),
 		NotificationBatchSize:     envOrDefaultInt("NOTIFICATION_BATCH_SIZE", 50),
+		AlertEvaluationInterval:   envOrDefaultDuration("ALERT_EVALUATION_INTERVAL", 30*time.Second),
+		AlertEvaluationMaxRecords: envOrDefaultInt("ALERT_EVALUATION_MAX_RECORDS", 50000),
 	}
 }
 

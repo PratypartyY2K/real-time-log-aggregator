@@ -94,6 +94,58 @@ ORDER BY ar.id ASC
 	return rules, nil
 }
 
+func (s *PostgresStore) LoadAllActiveRules(ctx context.Context) ([]Rule, error) {
+	if s == nil || s.db == nil {
+		return nil, fmt.Errorf("alert rule store is not configured")
+	}
+
+	const stmt = `
+SELECT
+    ar.id,
+    ar.tenant_id,
+    ar.service_id,
+    svc.name,
+    svc.environment,
+    COALESCE(svc.name, ''),
+    COALESCE(ar.log_level, ''),
+    COALESCE(ar.fingerprint, ''),
+    svc.owner,
+    ar.name,
+    ar.rule_type,
+    ar.severity,
+    ar.filter_json::text,
+    ar.group_by::text,
+    ar.window_seconds,
+    ar.threshold::text,
+    ar.cooldown_seconds,
+    ar.status
+FROM alert_rules ar
+LEFT JOIN services svc
+    ON svc.id = ar.service_id
+WHERE ar.status = 'active'
+ORDER BY ar.tenant_id ASC, ar.id ASC
+`
+
+	rows, err := s.db.QueryContext(ctx, stmt)
+	if err != nil {
+		return nil, fmt.Errorf("query active alert rules: %w", err)
+	}
+	defer rows.Close()
+
+	rules := make([]Rule, 0)
+	for rows.Next() {
+		rule, err := scanRule(rows)
+		if err != nil {
+			return nil, err
+		}
+		rules = append(rules, rule)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate alert rules: %w", err)
+	}
+	return rules, nil
+}
+
 type rowScanner interface {
 	Scan(dest ...any) error
 }
