@@ -72,9 +72,7 @@ Prerequisites: Go, Docker, and Docker Compose.
 
 ```bash
 docker compose -f deployments/local/docker-compose.yml up -d
-go run ./cmd/postgres-migrate
-cat db/clickhouse/001_logs.sql | docker compose -f deployments/local/docker-compose.yml exec -T clickhouse clickhouse-client --multiquery
-cat db/clickhouse/003_distributed_logs.sql | docker compose -f deployments/local/docker-compose.yml exec -T clickhouse clickhouse-client --multiquery
+go run ./cmd/migrate
 go run ./cmd/nats-setup
 ```
 

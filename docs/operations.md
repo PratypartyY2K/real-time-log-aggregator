@@ -45,21 +45,21 @@ docker compose -f deployments/local/docker-compose.yml ps
 Initialize Postgres and JetStream:
 
 ```bash
-go run ./cmd/postgres-migrate
+go run ./cmd/migrate -target=postgres
 go run ./cmd/nats-setup
 ```
 
 Initialize ClickHouse on a new environment:
 
 ```bash
-cat db/clickhouse/001_logs.sql | docker compose -f deployments/local/docker-compose.yml exec -T clickhouse clickhouse-client --multiquery
-cat db/clickhouse/003_distributed_logs.sql | docker compose -f deployments/local/docker-compose.yml exec -T clickhouse clickhouse-client --multiquery
+go run ./cmd/migrate -target=clickhouse
 ```
 
 For a table created with the older unoptimized schema, pause processor writes,
-run `002_optimize_logs.sql`, validate it, and then run
-`003_distributed_logs.sql`. Both migrations preserve the previous table for
-manual validation and rollback.
+run `go run ./cmd/migrate -target=clickhouse`, and validate the preserved
+tables. ClickHouse migration versions are recorded in `schema_migrations`, but
+ClickHouse DDL is not transactional; keep processor writes paused for the
+one-time table rewrite migrations.
 
 ## Seed local access
 
@@ -252,7 +252,7 @@ Configuration:
 - `NOTIFICATION_MAX_ATTEMPTS` (default `5`)
 - `NOTIFICATION_BATCH_SIZE` (default `50`, capped at `500`)
 
-Run `go run ./cmd/postgres-migrate` before deploying this version to apply the
+Run `go run ./cmd/migrate -target=postgres` before deploying this version to apply the
 delivery audit migration. Delivery remains at-least-once: a process crash after
 an external target accepts a message but before Postgres records success can
 cause a duplicate send. Future channel implementations should therefore attach

@@ -60,7 +60,7 @@ Start both shards and Keeper, pause the processor, and run the migration on the
 coordinator:
 
 ```bash
-cat db/clickhouse/003_distributed_logs.sql | docker compose -f deployments/local/docker-compose.yml exec -T clickhouse clickhouse-client --multiquery
+go run ./cmd/migrate -target=clickhouse
 ```
 
 The migration retains the previous table as `logs_single_node`. Validate totals
