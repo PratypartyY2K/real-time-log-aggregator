@@ -255,6 +255,8 @@ not enqueue another notification. If a resolved incident reopens within
 notification is suppressed.
 
 Triggered event payloads include `metric_value`, `threshold`, `window_seconds`, and, for percentile rules, `percentile` and `value_field`.
+Alert history exposes when an incident triggered, when it resolved, the latest
+triggering value, and the latest notification delivery result.
 
 Scheduler configuration:
 

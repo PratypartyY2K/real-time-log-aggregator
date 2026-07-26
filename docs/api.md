@@ -263,8 +263,10 @@ at 90 days. They support `rule_id`, `limit`, and `offset`.
 ### `GET /v1/alerts/history`
 
 Returns alert instances with rule metadata, dedupe key, current status, first
-and latest firing times, and resolution time. The optional `status` filter
-selects firing or resolved instances.
+and latest firing times, explicit `triggered_at` and `resolved_at` lifecycle
+timestamps, the latest `triggering_value`, and the latest
+`notification_result`. The optional `status` filter selects firing or resolved
+instances.
 
 ### `GET /v1/alerts/deliveries`
 
