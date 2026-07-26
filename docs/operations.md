@@ -215,11 +215,16 @@ Example rate rule (at least 2 errors/second over five minutes):
 
 ```sql
 INSERT INTO alert_rules
-    (tenant_id, name, rule_type, severity, filter_json, group_by, window_seconds, threshold)
+    (tenant_id, service_id, name, rule_type, severity, log_level, fingerprint, group_by, window_seconds, threshold)
 VALUES
-    (1, 'service error rate', 'rate_threshold', 'high',
-     '{"level":"error"}', '["service"]', 300, 2);
+    (1, 10, 'payment-api error fingerprint spike', 'count_threshold', 'high',
+     'ERROR', 'payment-db-timeout', '["service"]', 300, 20);
 ```
+
+The service and environment scope comes from `service_id` through the
+`services` table. `log_level`, `fingerprint`, `threshold`, and
+`window_seconds` are first-class alert rule fields; existing `filter_json`
+filters still work and can be combined with them.
 
 Example latency rule (p95 duration at least 500 ms):
 
