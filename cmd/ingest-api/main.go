@@ -66,12 +66,12 @@ func routes(cfg config.Config, db *sql.DB, authenticator ingest.Authenticator, p
 	})
 
 	mux := http.NewServeMux()
+	healthHandler := readiness.HealthHandler()
 	mux.Handle("/metrics", metricsHandler)
 	mux.Handle("/metricsz", observer)
-	mux.Handle("/healthz", httpMetrics.Middleware("/healthz", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("ok"))
-	})))
+	mux.Handle("/health", httpMetrics.Middleware("/health", healthHandler))
+	mux.Handle("/healthz", httpMetrics.Middleware("/healthz", healthHandler))
+	mux.Handle("/ready", httpMetrics.Middleware("/ready", readyHandler))
 	mux.Handle("/readyz", httpMetrics.Middleware("/readyz", readyHandler))
 	mux.Handle("/v1/logs", httpMetrics.Middleware("/v1/logs", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {

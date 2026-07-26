@@ -33,18 +33,19 @@ func main() {
 	ruleStore := alerts.NewPostgresStore(db)
 	queueMonitor := stream.NewQueueMonitor(cfg.NATSURL, cfg.NATSStream, cfg.NATSDurable)
 	probeMux := http.NewServeMux()
-	probeMux.Handle("/metrics", metrics.NewHandler(cfg.ServiceName, processorMetrics, alertMetrics, stream.NewQueueLagCollector(cfg.ServiceName, queueMonitor)))
-	probeMux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("ok"))
-	})
-	probeMux.Handle("/readyz", readiness.NewHandler(
+	healthHandler := readiness.HealthHandler()
+	readyHandler := readiness.NewHandler(
 		readiness.Func("nats", func(ctx context.Context) error {
 			return stream.CheckURL(ctx, cfg.NATSURL)
 		}),
 		readiness.PostgresChecker("postgres", db),
 		readiness.Func("clickhouse", writer.Check),
-	))
+	)
+	probeMux.Handle("/metrics", metrics.NewHandler(cfg.ServiceName, processorMetrics, alertMetrics, stream.NewQueueLagCollector(cfg.ServiceName, queueMonitor)))
+	probeMux.Handle("/health", healthHandler)
+	probeMux.Handle("/healthz", healthHandler)
+	probeMux.Handle("/ready", readyHandler)
+	probeMux.Handle("/readyz", readyHandler)
 	service := worker.New(cfg, func(ctx context.Context, logger app.Logger) error {
 		return processor.Run(ctx, logger, cfg, processorMetrics, alertMetrics, ruleStore)
 	}, worker.WithMetricsHandler(probeMux))

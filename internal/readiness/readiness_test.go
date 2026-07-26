@@ -9,6 +9,24 @@ import (
 	"testing"
 )
 
+func TestHealthHandlerReturnsProcessHealth(t *testing.T) {
+	t.Parallel()
+
+	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	rec := httptest.NewRecorder()
+	HealthHandler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	if rec.Header().Get("Content-Type") != "application/json" {
+		t.Fatalf("expected application/json content type, got %q", rec.Header().Get("Content-Type"))
+	}
+	if rec.Body.String() != "{\"status\":\"ok\"}\n" {
+		t.Fatalf("unexpected health response: %s", rec.Body.String())
+	}
+}
+
 func TestHandlerReturnsReadyWhenAllChecksPass(t *testing.T) {
 	t.Parallel()
 
@@ -17,7 +35,7 @@ func TestHandlerReturnsReadyWhenAllChecksPass(t *testing.T) {
 		Func("nats", func(context.Context) error { return nil }),
 	)
 
-	req := httptest.NewRequest(http.MethodGet, "/readyz", nil)
+	req := httptest.NewRequest(http.MethodGet, "/ready", nil)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -41,7 +59,7 @@ func TestHandlerReturnsUnavailableWhenAnyCheckFails(t *testing.T) {
 		Func("clickhouse", func(context.Context) error { return errors.New("unreachable") }),
 	)
 
-	req := httptest.NewRequest(http.MethodGet, "/readyz", nil)
+	req := httptest.NewRequest(http.MethodGet, "/ready", nil)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 

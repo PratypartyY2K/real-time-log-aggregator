@@ -54,11 +54,11 @@ func routes(serviceName string, db *sql.DB, resolver queryapi.TenantResolver, st
 	})
 	mux.Handle("/playground/", queryapi.PlaygroundHandler())
 	mux.Handle("/openapi.yaml", queryapi.OpenAPIHandler())
+	healthHandler := readiness.HealthHandler()
 	mux.Handle("/metrics", metricsHandler)
-	mux.Handle("/healthz", httpMetrics.Middleware("/healthz", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("ok"))
-	})))
+	mux.Handle("/health", httpMetrics.Middleware("/health", healthHandler))
+	mux.Handle("/healthz", httpMetrics.Middleware("/healthz", healthHandler))
+	mux.Handle("/ready", httpMetrics.Middleware("/ready", readyHandler))
 	mux.Handle("/readyz", httpMetrics.Middleware("/readyz", readyHandler))
 	mux.Handle("/v1/status", httpMetrics.Middleware("/v1/status", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

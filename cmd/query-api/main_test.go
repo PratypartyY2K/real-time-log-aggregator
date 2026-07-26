@@ -135,7 +135,7 @@ func TestRoutesExposePrometheusMetrics(t *testing.T) {
 func TestRoutesExposeReadiness(t *testing.T) {
 	handler := routes("query-api", nil, stubTenantResolver{}, &stubLogStore{})
 
-	req := httptest.NewRequest(http.MethodGet, "/readyz", nil)
+	req := httptest.NewRequest(http.MethodGet, "/ready", nil)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -144,6 +144,21 @@ func TestRoutesExposeReadiness(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), `"status":"ready"`) {
 		t.Fatalf("expected readiness payload, got %s", rec.Body.String())
+	}
+}
+
+func TestRoutesExposeProcessHealth(t *testing.T) {
+	handler := routes("query-api", nil, stubTenantResolver{}, &stubLogStore{})
+
+	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"status":"ok"`) {
+		t.Fatalf("expected health payload, got %s", rec.Body.String())
 	}
 }
 
