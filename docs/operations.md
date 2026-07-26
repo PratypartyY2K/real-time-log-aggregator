@@ -247,6 +247,13 @@ Alert instance lifecycle states are:
 - `firing`: the threshold is currently exceeded.
 - `resolved`: a previously firing alert no longer exceeds its threshold.
 
+Notifications are deduplicated by rule and group key. A firing notification is
+enqueued only when an incident first enters `firing`; repeated evaluations while
+the same incident remains firing are recorded as suppressed state changes and do
+not enqueue another notification. If a resolved incident reopens within
+`cooldown_seconds`, the state moves back to `firing` but the reopening
+notification is suppressed.
+
 Triggered event payloads include `metric_value`, `threshold`, `window_seconds`, and, for percentile rules, `percentile` and `value_field`.
 
 Scheduler configuration:
