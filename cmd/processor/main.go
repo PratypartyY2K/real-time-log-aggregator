@@ -47,11 +47,9 @@ func main() {
 	)
 	probeMux.Handle("/metrics", metrics.NewHandler(cfg.ServiceName, processorMetrics, alertMetrics, stream.NewQueueLagCollector(cfg.ServiceName, queueMonitor)))
 	probeMux.Handle("/health", healthHandler)
-	probeMux.Handle("/healthz", healthHandler)
 	probeMux.Handle("/ready", readyHandler)
-	probeMux.Handle("/readyz", readyHandler)
 	service := worker.New(cfg, func(ctx context.Context, logger app.Logger) error {
 		return processor.Run(ctx, logger, cfg, processorMetrics, alertMetrics, ruleStore, dispatcher)
-	}, worker.WithMetricsHandler(probeMux))
+	}, probeMux)
 	app.Run(service)
 }

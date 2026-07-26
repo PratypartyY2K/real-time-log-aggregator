@@ -231,19 +231,6 @@ paths:
       responses:
         "200": { description: Dependencies are ready }
         "503": { description: One or more dependencies are unavailable }
-  /healthz:
-    get:
-      security: []
-      summary: Compatibility liveness probe
-      responses:
-        "200": { description: Service is alive }
-  /readyz:
-    get:
-      security: []
-      summary: Compatibility dependency readiness probe
-      responses:
-        "200": { description: Dependencies are ready }
-        "503": { description: One or more dependencies are unavailable }
 components:
   securitySchemes:
     ApiKey:

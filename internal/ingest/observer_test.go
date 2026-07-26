@@ -65,7 +65,7 @@ func TestMetricsObserverServesJSONSnapshot(t *testing.T) {
 	observer := NewMetricsObserver(logging.New("error"))
 	observer.ObserveAuth(context.Background(), AuthObservation{Outcome: AuthOutcomeAuthorized})
 
-	req := httptest.NewRequest("GET", "/metricsz", nil)
+	req := httptest.NewRequest("GET", "/metrics", nil)
 	rec := httptest.NewRecorder()
 
 	observer.ServeHTTP(rec, req)

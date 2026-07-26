@@ -100,7 +100,7 @@ func TestClickHouseWriterReturnsServerError(t *testing.T) {
 			Service:   "checkout",
 		},
 	})
-	if err == nil || !strings.Contains(err.Error(), "clickhouse insert failed") {
+	if err == nil || !strings.Contains(err.Error(), "clickhouse returned") {
 		t.Fatalf("expected clickhouse insert error, got %v", err)
 	}
 

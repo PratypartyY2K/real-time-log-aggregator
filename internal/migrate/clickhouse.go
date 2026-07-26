@@ -8,6 +8,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	commonclickhouse "github.com/PratypartyY2K/real-time-log-aggregator/internal/clickhouse"
 )
 
 type ClickHouseRunner struct {
@@ -91,27 +93,19 @@ func (r ClickHouseRunner) do(ctx context.Context, query string, multiquery bool)
 	}
 	baseURL.RawQuery = values.Encode()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL.String(), strings.NewReader(query))
-	if err != nil {
-		return "", fmt.Errorf("build clickhouse migration request: %w", err)
-	}
-
 	client := r.Client
 	if client == nil {
 		client = &http.Client{Timeout: 30 * time.Second}
 	}
-	resp, err := client.Do(req)
+	body, err := commonclickhouse.Do(ctx, client, baseURL.String(), query)
 	if err != nil {
 		return "", fmt.Errorf("run clickhouse query: %w", err)
 	}
-	defer resp.Body.Close()
+	defer body.Close()
 
-	payload, err := io.ReadAll(resp.Body)
+	payload, err := io.ReadAll(body)
 	if err != nil {
 		return "", fmt.Errorf("read clickhouse response: %w", err)
-	}
-	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		return "", fmt.Errorf("clickhouse returned %s: %s", resp.Status, strings.TrimSpace(string(payload)))
 	}
 
 	return string(payload), nil

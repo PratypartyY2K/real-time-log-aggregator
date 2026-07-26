@@ -140,25 +140,29 @@ func (c *HTTPCollector) WritePrometheus(body *strings.Builder) {
 			"code":    strconv.Itoa(key.Code),
 		}
 		WriteMetricLine(body, "logagg_http_requests_total", labels, strconv.FormatUint(value.Count, 10))
-		for index, upperBound := range httpDurationBuckets {
-			bucketLabels := cloneLabels(labels)
-			bucketLabels["le"] = FormatFloat(upperBound)
-			WriteMetricLine(body, "logagg_http_request_duration_seconds_bucket", bucketLabels, strconv.FormatUint(value.Buckets[index], 10))
-		}
-		infiniteLabels := cloneLabels(labels)
-		infiniteLabels["le"] = "+Inf"
-		WriteMetricLine(body, "logagg_http_request_duration_seconds_bucket", infiniteLabels, strconv.FormatUint(value.Count, 10))
-		WriteMetricLine(body, "logagg_http_request_duration_seconds_sum", labels, FormatFloat(value.DurationSum))
-		WriteMetricLine(body, "logagg_http_request_duration_seconds_count", labels, strconv.FormatUint(value.Count, 10))
+		WriteHistogram(body, "logagg_http_request_duration_seconds", labels, httpDurationBuckets, value.Buckets, value.DurationSum, value.Count)
 	}
 }
 
-func cloneLabels(labels map[string]string) map[string]string {
+func CloneLabels(labels map[string]string) map[string]string {
 	cloned := make(map[string]string, len(labels)+1)
 	for key, value := range labels {
 		cloned[key] = value
 	}
 	return cloned
+}
+
+func WriteHistogram(body *strings.Builder, name string, labels map[string]string, bounds []float64, buckets []uint64, sum float64, count uint64) {
+	for index, upperBound := range bounds {
+		bucketLabels := CloneLabels(labels)
+		bucketLabels["le"] = FormatFloat(upperBound)
+		WriteMetricLine(body, name+"_bucket", bucketLabels, strconv.FormatUint(buckets[index], 10))
+	}
+	infiniteLabels := CloneLabels(labels)
+	infiniteLabels["le"] = "+Inf"
+	WriteMetricLine(body, name+"_bucket", infiniteLabels, strconv.FormatUint(count, 10))
+	WriteMetricLine(body, name+"_sum", labels, FormatFloat(sum))
+	WriteMetricLine(body, name+"_count", labels, strconv.FormatUint(count, 10))
 }
 
 type statusRecorder struct {

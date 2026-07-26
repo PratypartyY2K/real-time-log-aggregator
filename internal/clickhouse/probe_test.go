@@ -48,7 +48,7 @@ func TestProbeReturnsServerError(t *testing.T) {
 			}, nil
 		}),
 	})
-	if err == nil || !strings.Contains(err.Error(), "clickhouse probe failed") {
+	if err == nil || !strings.Contains(err.Error(), "clickhouse returned") {
 		t.Fatalf("expected clickhouse probe error, got %v", err)
 	}
 }

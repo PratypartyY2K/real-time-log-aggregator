@@ -167,7 +167,7 @@ func TestClickHouseStoreReturnsServerError(t *testing.T) {
 		End:      time.Date(2026, 7, 13, 19, 0, 0, 0, time.UTC),
 		Limit:    10,
 	})
-	if err == nil || !strings.Contains(err.Error(), "clickhouse query failed") {
+	if err == nil || !strings.Contains(err.Error(), "clickhouse returned") {
 		t.Fatalf("expected clickhouse query error, got %v", err)
 	}
 }

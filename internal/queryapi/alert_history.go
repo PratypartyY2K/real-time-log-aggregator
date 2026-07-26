@@ -88,21 +88,20 @@ func NewPostgresAlertHistoryStore(db *sql.DB) *PostgresAlertHistoryStore {
 }
 
 type AlertHistoryHandler struct {
-	store      AlertHistoryStore
-	audit      bool
-	deliveries bool
+	store AlertHistoryStore
+	mode  AlertHistoryMode
 }
 
-func NewAlertHistoryHandler(store AlertHistoryStore) *AlertHistoryHandler {
-	return &AlertHistoryHandler{store: store}
-}
+type AlertHistoryMode int
 
-func NewAlertAuditHandler(store AlertHistoryStore) *AlertHistoryHandler {
-	return &AlertHistoryHandler{store: store, audit: true}
-}
+const (
+	AlertHistoryModeAlerts AlertHistoryMode = iota
+	AlertHistoryModeAudit
+	AlertHistoryModeDeliveries
+)
 
-func NewNotificationDeliveryHistoryHandler(store AlertHistoryStore) *AlertHistoryHandler {
-	return &AlertHistoryHandler{store: store, deliveries: true}
+func NewAlertHistoryHandler(store AlertHistoryStore, mode AlertHistoryMode) *AlertHistoryHandler {
+	return &AlertHistoryHandler{store: store, mode: mode}
 }
 
 func (h *AlertHistoryHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -126,7 +125,7 @@ func (h *AlertHistoryHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 	}
 	query.TenantID = tenantID
 
-	if h.deliveries {
+	if h.mode == AlertHistoryModeDeliveries {
 		deliveries, err := h.store.QueryNotificationDeliveries(r.Context(), query)
 		if err != nil {
 			writeError(w, http.StatusServiceUnavailable, "failed to query notification deliveries")
@@ -135,7 +134,7 @@ func (h *AlertHistoryHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 		writeJSON(w, http.StatusOK, map[string]any{"deliveries": deliveries, "count": len(deliveries), "next_offset": historyNextOffset(len(deliveries), query)})
 		return
 	}
-	if h.audit {
+	if h.mode == AlertHistoryModeAudit {
 		entries, err := h.store.QueryAlertAudit(r.Context(), query)
 		if err != nil {
 			writeError(w, http.StatusServiceUnavailable, "failed to query alert audit log")

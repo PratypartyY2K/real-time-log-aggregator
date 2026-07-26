@@ -10,7 +10,6 @@ The machine-readable OpenAPI 3.1 contract is served by `query-api` at
 
 - [Correlation headers](#correlation-headers)
 - [`POST /v1/logs`](#post-v1logs)
-- [`GET /metricsz`](#get-metricsz)
 - [`GET /metrics`](#get-metrics)
 - [`GET /health`](#get-health)
 - [`GET /ready`](#get-ready)
@@ -104,14 +103,6 @@ printf 'local-dev-key' | shasum -a 256
 
 Use the resulting hex digest as `key_hash` in `api_keys`, and make sure a matching row exists in `services` for the request `service` and `env`.
 
-## `GET /metricsz`
-
-Current behavior:
-
-- returns JSON counters for ingest auth outcomes
-- includes `authorized`, `missing_api_key`, `invalid_api_key`, `forbidden_scope`, `backend_error`, `authenticator_unavailable`, `rate_limited`, `request_body_too_large`, `invalid_request_body`, and `batch_too_large`
-- is specific to `ingest-api`
-
 ## `GET /metrics`
 
 Current behavior:
@@ -123,7 +114,6 @@ Current behavior:
 Current behavior:
 
 - returns `200 OK` with `{"status":"ok"}` when the process is alive
-- `/healthz` is kept as a compatibility alias
 
 ## `GET /ready`
 
@@ -133,7 +123,6 @@ Current behavior:
 - `query-api` checks Postgres and ClickHouse
 - `processor` checks NATS, Postgres, and ClickHouse
 - returns `503 Service Unavailable` with per-dependency errors when any check fails
-- `/readyz` is kept as a compatibility alias
 
 ## `GET /v1/logs`
 

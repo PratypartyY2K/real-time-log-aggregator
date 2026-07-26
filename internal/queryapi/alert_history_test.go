@@ -28,7 +28,7 @@ func TestAlertHistoryHandlerScopesQueryToTenant(t *testing.T) {
 	}}}
 	req := tenantRequest(httptest.NewRequest(http.MethodGet, "/v1/alerts/history?start=2026-07-01T00:00:00Z&end=2026-07-02T00:00:00Z&rule_id=2&status=active&limit=25", nil))
 	rec := httptest.NewRecorder()
-	NewAlertHistoryHandler(store).ServeHTTP(rec, req)
+	NewAlertHistoryHandler(store, AlertHistoryModeAlerts).ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
@@ -69,7 +69,7 @@ func TestAlertHistoryHandlerReturnsLifecycleValueAndNotificationResult(t *testin
 	req := tenantRequest(httptest.NewRequest(http.MethodGet, "/v1/alerts/history?start=2026-07-01T00:00:00Z&end=2026-07-02T00:00:00Z", nil))
 	rec := httptest.NewRecorder()
 
-	NewAlertHistoryHandler(store).ServeHTTP(rec, req)
+	NewAlertHistoryHandler(store, AlertHistoryModeAlerts).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
@@ -97,7 +97,7 @@ func TestAlertAuditHandlerReturnsCombinedTimeline(t *testing.T) {
 	store := &stubAlertHistoryStore{audit: []AlertAuditEntry{{ID: "attempt:1", EventType: "notification_attempt"}}}
 	req := tenantRequest(httptest.NewRequest(http.MethodGet, "/v1/alerts/audit?start=2026-07-01T00:00:00Z&end=2026-07-02T00:00:00Z&event_type=notification_attempt", nil))
 	rec := httptest.NewRecorder()
-	NewAlertAuditHandler(store).ServeHTTP(rec, req)
+	NewAlertHistoryHandler(store, AlertHistoryModeAudit).ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "notification_attempt") {
 		t.Fatalf("unexpected response %d: %s", rec.Code, rec.Body.String())
 	}
@@ -110,7 +110,7 @@ func TestNotificationDeliveryHistoryHandlerReturnsTrackingState(t *testing.T) {
 	store := &stubAlertHistoryStore{deliveries: []NotificationDeliveryItem{{ID: 4, Status: "retrying", AttemptCount: 2, MaxAttempts: 5}}}
 	req := tenantRequest(httptest.NewRequest(http.MethodGet, "/v1/alerts/deliveries?start=2026-07-01T00:00:00Z&end=2026-07-02T00:00:00Z&status=retrying", nil))
 	rec := httptest.NewRecorder()
-	NewNotificationDeliveryHistoryHandler(store).ServeHTTP(rec, req)
+	NewAlertHistoryHandler(store, AlertHistoryModeDeliveries).ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "retrying") {
 		t.Fatalf("unexpected response %d: %s", rec.Code, rec.Body.String())
 	}
@@ -119,7 +119,7 @@ func TestNotificationDeliveryHistoryHandlerReturnsTrackingState(t *testing.T) {
 func TestAlertHistoryHandlerRejectsWindowOverNinetyDays(t *testing.T) {
 	req := tenantRequest(httptest.NewRequest(http.MethodGet, "/v1/alerts/history?start=2026-01-01T00:00:00Z&end=2026-07-01T00:00:00Z", nil))
 	rec := httptest.NewRecorder()
-	NewAlertHistoryHandler(&stubAlertHistoryStore{}).ServeHTTP(rec, req)
+	NewAlertHistoryHandler(&stubAlertHistoryStore{}, AlertHistoryModeAlerts).ServeHTTP(rec, req)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", rec.Code)
 	}

@@ -146,11 +146,7 @@ ORDER BY ar.tenant_id ASC, ar.id ASC
 	return rules, nil
 }
 
-type rowScanner interface {
-	Scan(dest ...any) error
-}
-
-func scanRule(row rowScanner) (Rule, error) {
+func scanRule(row interface{ Scan(dest ...any) error }) (Rule, error) {
 	var rule Rule
 	if err := row.Scan(
 		&rule.ID,

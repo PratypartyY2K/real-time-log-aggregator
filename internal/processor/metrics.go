@@ -183,16 +183,7 @@ func (m *Metrics) WritePrometheus(body *strings.Builder) {
 	}
 	for result, count := range m.endToEndCount {
 		labels := map[string]string{"service": m.service, "result": result}
-		for index, upperBound := range endToEndLatencyBuckets {
-			bucketLabels := cloneMetricLabels(labels)
-			bucketLabels["le"] = commonmetrics.FormatFloat(upperBound)
-			commonmetrics.WriteMetricLine(body, "logagg_processor_end_to_end_latency_seconds_bucket", bucketLabels, strconv.FormatUint(m.endToEndBuckets[result][index], 10))
-		}
-		infiniteLabels := cloneMetricLabels(labels)
-		infiniteLabels["le"] = "+Inf"
-		commonmetrics.WriteMetricLine(body, "logagg_processor_end_to_end_latency_seconds_bucket", infiniteLabels, strconv.FormatUint(count, 10))
-		commonmetrics.WriteMetricLine(body, "logagg_processor_end_to_end_latency_seconds_sum", labels, commonmetrics.FormatFloat(m.endToEndSum[result]))
-		commonmetrics.WriteMetricLine(body, "logagg_processor_end_to_end_latency_seconds_count", labels, strconv.FormatUint(count, 10))
+		commonmetrics.WriteHistogram(body, "logagg_processor_end_to_end_latency_seconds", labels, endToEndLatencyBuckets, m.endToEndBuckets[result], m.endToEndSum[result], count)
 	}
 	for key, count := range m.dlqPublicationCount {
 		labels := map[string]string{"service": m.service, "reason": key.reason, "outcome": key.outcome}
@@ -203,16 +194,7 @@ func (m *Metrics) WritePrometheus(body *strings.Builder) {
 	}
 	for key, count := range m.clickHouseCount {
 		labels := map[string]string{"service": m.service, "operation": key.operation, "result": key.result}
-		for index, upperBound := range httpLikeLatencyBuckets {
-			bucketLabels := cloneMetricLabels(labels)
-			bucketLabels["le"] = commonmetrics.FormatFloat(upperBound)
-			commonmetrics.WriteMetricLine(body, "logagg_clickhouse_write_duration_seconds_bucket", bucketLabels, strconv.FormatUint(m.clickHouseBuckets[key][index], 10))
-		}
-		infiniteLabels := cloneMetricLabels(labels)
-		infiniteLabels["le"] = "+Inf"
-		commonmetrics.WriteMetricLine(body, "logagg_clickhouse_write_duration_seconds_bucket", infiniteLabels, strconv.FormatUint(count, 10))
-		commonmetrics.WriteMetricLine(body, "logagg_clickhouse_write_duration_seconds_sum", labels, commonmetrics.FormatFloat(m.clickHouseSum[key]))
-		commonmetrics.WriteMetricLine(body, "logagg_clickhouse_write_duration_seconds_count", labels, strconv.FormatUint(count, 10))
+		commonmetrics.WriteHistogram(body, "logagg_clickhouse_write_duration_seconds", labels, httpLikeLatencyBuckets, m.clickHouseBuckets[key], m.clickHouseSum[key], count)
 		if key.result != resultSuccess {
 			commonmetrics.WriteMetricLine(body, "logagg_clickhouse_write_errors_total", labels, strconv.FormatUint(count, 10))
 		}
@@ -225,12 +207,4 @@ func normalizedLabel(value string) string {
 		return "unknown"
 	}
 	return value
-}
-
-func cloneMetricLabels(labels map[string]string) map[string]string {
-	cloned := make(map[string]string, len(labels)+1)
-	for key, value := range labels {
-		cloned[key] = value
-	}
-	return cloned
 }

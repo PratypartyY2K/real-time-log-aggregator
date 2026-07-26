@@ -58,9 +58,7 @@ func routes(serviceName string, db *sql.DB, resolver queryapi.TenantResolver, st
 	healthHandler := readiness.HealthHandler()
 	mux.Handle("/metrics", metricsHandler)
 	mux.Handle("/health", httpMetrics.Middleware("/health", healthHandler))
-	mux.Handle("/healthz", httpMetrics.Middleware("/healthz", healthHandler))
 	mux.Handle("/ready", httpMetrics.Middleware("/ready", readyHandler))
-	mux.Handle("/readyz", httpMetrics.Middleware("/readyz", readyHandler))
 	mux.Handle("/v1/status", httpMetrics.Middleware("/v1/status", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
@@ -75,8 +73,8 @@ func routes(serviceName string, db *sql.DB, resolver queryapi.TenantResolver, st
 	mux.Handle("/v1/graph", httpMetrics.Middleware("/v1/graph", queryapi.TenantAuthMiddleware(resolver, queryapi.NewGraphHandler(store))))
 	mux.Handle("/v1/alerts", httpMetrics.Middleware("/v1/alerts", queryapi.TenantAuthMiddleware(resolver, queryapi.NewAlertRuleHandler(alertRuleStore))))
 	mux.Handle("/v1/alerts/", httpMetrics.Middleware("/v1/alerts", queryapi.TenantAuthMiddleware(resolver, queryapi.NewAlertRuleHandler(alertRuleStore))))
-	mux.Handle("/v1/alerts/history", httpMetrics.Middleware("/v1/alerts/history", queryapi.TenantAuthMiddleware(resolver, queryapi.NewAlertHistoryHandler(alertHistoryStore))))
-	mux.Handle("/v1/alerts/audit", httpMetrics.Middleware("/v1/alerts/audit", queryapi.TenantAuthMiddleware(resolver, queryapi.NewAlertAuditHandler(alertHistoryStore))))
-	mux.Handle("/v1/alerts/deliveries", httpMetrics.Middleware("/v1/alerts/deliveries", queryapi.TenantAuthMiddleware(resolver, queryapi.NewNotificationDeliveryHistoryHandler(alertHistoryStore))))
+	mux.Handle("/v1/alerts/history", httpMetrics.Middleware("/v1/alerts/history", queryapi.TenantAuthMiddleware(resolver, queryapi.NewAlertHistoryHandler(alertHistoryStore, queryapi.AlertHistoryModeAlerts))))
+	mux.Handle("/v1/alerts/audit", httpMetrics.Middleware("/v1/alerts/audit", queryapi.TenantAuthMiddleware(resolver, queryapi.NewAlertHistoryHandler(alertHistoryStore, queryapi.AlertHistoryModeAudit))))
+	mux.Handle("/v1/alerts/deliveries", httpMetrics.Middleware("/v1/alerts/deliveries", queryapi.TenantAuthMiddleware(resolver, queryapi.NewAlertHistoryHandler(alertHistoryStore, queryapi.AlertHistoryModeDeliveries))))
 	return mux
 }

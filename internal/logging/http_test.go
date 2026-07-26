@@ -43,7 +43,7 @@ func TestMiddlewareGeneratesRequestIDWhenMissing(t *testing.T) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
 
-	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	req := httptest.NewRequest(http.MethodGet, "/health", nil)
 	rec := httptest.NewRecorder()
 
 	handler.ServeHTTP(rec, req)
@@ -99,7 +99,7 @@ func TestMiddlewareReplacesInvalidTraceContext(t *testing.T) {
 			t.Fatalf("expected generated trace id, got %q", got)
 		}
 	}))
-	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	req := httptest.NewRequest(http.MethodGet, "/health", nil)
 	req.Header.Set(TraceparentHeader, "invalid")
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)

@@ -20,26 +20,13 @@ type Service struct {
 	metricsHandler http.Handler
 }
 
-type Option func(*Service)
-
-func WithMetricsHandler(handler http.Handler) Option {
-	return func(s *Service) {
-		s.metricsHandler = handler
+func New(cfg config.Config, runner Runner, metricsHandler http.Handler) *Service {
+	return &Service{
+		cfg:            cfg,
+		logger:         logging.New(cfg.LogLevel),
+		run:            runner,
+		metricsHandler: metricsHandler,
 	}
-}
-
-func New(cfg config.Config, runner Runner, options ...Option) *Service {
-	service := &Service{
-		cfg:    cfg,
-		logger: logging.New(cfg.LogLevel),
-		run:    runner,
-	}
-	for _, option := range options {
-		if option != nil {
-			option(service)
-		}
-	}
-	return service
 }
 
 func (s *Service) Run(ctx context.Context) error {

@@ -530,16 +530,12 @@ RETURNING id
 	return id, err
 }
 
-func scanAlertRule(row rowScanner) (AlertRule, error) {
+func scanAlertRule(row interface{ Scan(dest ...any) error }) (AlertRule, error) {
 	var rule AlertRule
 	if err := row.Scan(&rule.ID, &rule.TenantID, &rule.Service, &rule.Environment, &rule.LogLevel, &rule.Fingerprint, &rule.Name, &rule.RuleType, &rule.Severity, &rule.FilterJSON, &rule.GroupBy, &rule.WindowSeconds, &rule.Threshold, &rule.CooldownSeconds, &rule.Status); err != nil {
 		return AlertRule{}, err
 	}
 	return rule, nil
-}
-
-type rowScanner interface {
-	Scan(dest ...any) error
 }
 
 func alertRuleMutationFromCurrent(rule AlertRule) AlertRuleMutation {

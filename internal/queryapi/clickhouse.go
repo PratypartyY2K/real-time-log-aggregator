@@ -14,7 +14,6 @@ import (
 	"time"
 
 	commonclickhouse "github.com/PratypartyY2K/real-time-log-aggregator/internal/clickhouse"
-	"github.com/PratypartyY2K/real-time-log-aggregator/internal/logging"
 )
 
 type ClickHouseStore struct {
@@ -113,29 +112,14 @@ func (s *ClickHouseStore) QueryLogs(ctx context.Context, filter QueryFilter) ([]
 		return nil, fmt.Errorf("tenant id is required")
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.url, strings.NewReader(buildLogsQuery(filter)))
-	if err != nil {
-		return nil, fmt.Errorf("build clickhouse query request: %w", err)
-	}
-	req.Header.Set("Content-Type", "text/plain; charset=utf-8")
-	logging.PropagateContext(ctx, req.Header)
-
-	resp, err := s.client.Do(req)
+	body, err := commonclickhouse.Do(ctx, s.client, s.url, buildLogsQuery(filter))
 	if err != nil {
 		return nil, fmt.Errorf("query clickhouse logs: %w", err)
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= http.StatusBadRequest {
-		payload, readErr := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		if readErr != nil {
-			return nil, fmt.Errorf("clickhouse query failed with status %s", resp.Status)
-		}
-		return nil, fmt.Errorf("clickhouse query failed with status %s: %s", resp.Status, strings.TrimSpace(string(payload)))
-	}
+	defer body.Close()
 
 	var result clickHouseQueryResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	if err := json.NewDecoder(body).Decode(&result); err != nil {
 		return nil, fmt.Errorf("decode clickhouse query response: %w", err)
 	}
 
@@ -162,28 +146,13 @@ func (s *ClickHouseStore) StreamLogs(ctx context.Context, filter QueryFilter, em
 		return fmt.Errorf("stream emitter is not configured")
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.url, strings.NewReader(buildLogsStreamQuery(filter)))
-	if err != nil {
-		return fmt.Errorf("build clickhouse stream query request: %w", err)
-	}
-	req.Header.Set("Content-Type", "text/plain; charset=utf-8")
-	logging.PropagateContext(ctx, req.Header)
-
-	resp, err := s.client.Do(req)
+	body, err := commonclickhouse.Do(ctx, s.client, s.url, buildLogsStreamQuery(filter))
 	if err != nil {
 		return fmt.Errorf("stream clickhouse logs: %w", err)
 	}
-	defer resp.Body.Close()
+	defer body.Close()
 
-	if resp.StatusCode >= http.StatusBadRequest {
-		payload, readErr := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		if readErr != nil {
-			return fmt.Errorf("clickhouse stream query failed with status %s", resp.Status)
-		}
-		return fmt.Errorf("clickhouse stream query failed with status %s: %s", resp.Status, strings.TrimSpace(string(payload)))
-	}
-
-	decoder := json.NewDecoder(resp.Body)
+	decoder := json.NewDecoder(body)
 	for {
 		var row clickHouseQueryRow
 		if err := decoder.Decode(&row); err != nil {
@@ -211,29 +180,14 @@ func (s *ClickHouseStore) QueryAnalytics(ctx context.Context, query AnalyticsQue
 		return nil, fmt.Errorf("tenant id is required")
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.url, strings.NewReader(buildAnalyticsQuery(query)))
-	if err != nil {
-		return nil, fmt.Errorf("build clickhouse analytics request: %w", err)
-	}
-	req.Header.Set("Content-Type", "text/plain; charset=utf-8")
-	logging.PropagateContext(ctx, req.Header)
-
-	resp, err := s.client.Do(req)
+	body, err := commonclickhouse.Do(ctx, s.client, s.url, buildAnalyticsQuery(query))
 	if err != nil {
 		return nil, fmt.Errorf("query clickhouse analytics: %w", err)
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= http.StatusBadRequest {
-		payload, readErr := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		if readErr != nil {
-			return nil, fmt.Errorf("clickhouse analytics query failed with status %s", resp.Status)
-		}
-		return nil, fmt.Errorf("clickhouse analytics query failed with status %s: %s", resp.Status, strings.TrimSpace(string(payload)))
-	}
+	defer body.Close()
 
 	var result clickHouseAnalyticsQueryResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	if err := json.NewDecoder(body).Decode(&result); err != nil {
 		return nil, fmt.Errorf("decode clickhouse analytics response: %w", err)
 	}
 
@@ -256,23 +210,13 @@ func (s *ClickHouseStore) QueryGraphRecords(ctx context.Context, query GraphQuer
 	if query.TenantID == 0 {
 		return nil, fmt.Errorf("tenant id is required")
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.url, strings.NewReader(buildGraphQuery(query)))
-	if err != nil {
-		return nil, fmt.Errorf("build clickhouse graph request: %w", err)
-	}
-	req.Header.Set("Content-Type", "text/plain; charset=utf-8")
-	logging.PropagateContext(ctx, req.Header)
-	resp, err := s.client.Do(req)
+	body, err := commonclickhouse.Do(ctx, s.client, s.url, buildGraphQuery(query))
 	if err != nil {
 		return nil, fmt.Errorf("query clickhouse graph records: %w", err)
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode >= http.StatusBadRequest {
-		payload, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return nil, fmt.Errorf("clickhouse graph query failed with status %s: %s", resp.Status, strings.TrimSpace(string(payload)))
-	}
+	defer body.Close()
 	var result clickHouseQueryResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	if err := json.NewDecoder(body).Decode(&result); err != nil {
 		return nil, fmt.Errorf("decode clickhouse graph response: %w", err)
 	}
 	records := make([]GraphRecord, 0, len(result.Data))
