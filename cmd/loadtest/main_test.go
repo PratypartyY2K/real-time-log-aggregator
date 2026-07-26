@@ -17,7 +17,7 @@ func TestRunBurstSendsUniqueSuccessfulRequests(t *testing.T) {
 		Service:       "checkout",
 		Env:           "prod",
 		Source:        "loadtest",
-	}, 2, 0, 8, 3)
+	}, 2, 0, 8, 3, "")
 	if err != nil {
 		t.Fatalf("run burst: %v", err)
 	}
@@ -60,6 +60,7 @@ func TestRunSustainedSendsRequestsForDuration(t *testing.T) {
 		25*time.Millisecond,
 		500,
 		4,
+		"",
 	)
 	if err != nil {
 		t.Fatalf("run sustained: %v", err)
@@ -69,6 +70,21 @@ func TestRunSustainedSendsRequestsForDuration(t *testing.T) {
 	}
 	if stats := summarize(results, 25*time.Millisecond); stats.failures != 0 {
 		t.Fatalf("unexpected sustained failures: %+v", stats)
+	}
+}
+
+func TestBuildLogsCanIncludeStableAlertErrorCode(t *testing.T) {
+	logs := buildLogs(2, 3, "PAYMENT_TIMEOUT")
+	if len(logs) != 2 {
+		t.Fatalf("expected two logs, got %d", len(logs))
+	}
+	for _, log := range logs {
+		if log.Level != "error" || log.Fields["error_code"] != "PAYMENT_TIMEOUT" {
+			t.Fatalf("expected alert-oriented error log, got %+v", log)
+		}
+	}
+	if logs[0].Fields["trace_id"] == logs[1].Fields["trace_id"] {
+		t.Fatalf("expected per-record trace ids to stay unique, got %+v", logs)
 	}
 }
 

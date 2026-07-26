@@ -53,6 +53,7 @@ func main() {
 		service     = flag.String("service", "checkout", "service name in the payload")
 		environment = flag.String("env", "prod", "environment name in the payload")
 		source      = flag.String("source", "app", "source tag in the payload")
+		errorCode   = flag.String("error-code", "", "optional stable error_code field for alert-oriented load tests")
 		mode        = flag.String("mode", "burst", "load profile: burst or sustained")
 		bursts      = flag.Int("bursts", 5, "number of bursts to send")
 		burstSize   = flag.Int("burst-size", 100, "requests per burst")
@@ -86,12 +87,12 @@ func main() {
 		if *bursts <= 0 || *burstSize <= 0 {
 			log.Fatal("bursts and burst-size must be positive")
 		}
-		results, err = runBursts(client, *targetURL, *apiKey, payload, *logsPerReq, *bursts, *burstSize, *concurrency, *pause)
+		results, err = runBursts(client, *targetURL, *apiKey, payload, *logsPerReq, *bursts, *burstSize, *concurrency, *pause, *errorCode)
 	case "sustained":
 		if *duration <= 0 || *rate <= 0 {
 			log.Fatal("duration and rate must be positive")
 		}
-		results, err = runSustained(client, *targetURL, *apiKey, payload, *logsPerReq, *duration, *rate, *concurrency)
+		results, err = runSustained(client, *targetURL, *apiKey, payload, *logsPerReq, *duration, *rate, *concurrency, *errorCode)
 	default:
 		log.Fatal("mode must be burst or sustained")
 	}
@@ -113,10 +114,10 @@ func main() {
 	}
 }
 
-func runBursts(client *http.Client, targetURL, apiKey string, payload requestPayload, logsPerRequest, bursts, burstSize, concurrency int, pause time.Duration) ([]result, error) {
+func runBursts(client *http.Client, targetURL, apiKey string, payload requestPayload, logsPerRequest, bursts, burstSize, concurrency int, pause time.Duration, errorCode string) ([]result, error) {
 	results := make([]result, 0, bursts*burstSize)
 	for burst := 0; burst < bursts; burst++ {
-		burstResults, err := runBurst(client, targetURL, apiKey, payload, logsPerRequest, burst*burstSize, burstSize, concurrency)
+		burstResults, err := runBurst(client, targetURL, apiKey, payload, logsPerRequest, burst*burstSize, burstSize, concurrency, errorCode)
 		if err != nil {
 			return nil, err
 		}
@@ -129,7 +130,7 @@ func runBursts(client *http.Client, targetURL, apiKey string, payload requestPay
 	return results, nil
 }
 
-func runBurst(client *http.Client, targetURL, apiKey string, payload requestPayload, logsPerRequest, sequenceStart, total, concurrency int) ([]result, error) {
+func runBurst(client *http.Client, targetURL, apiKey string, payload requestPayload, logsPerRequest, sequenceStart, total, concurrency int, errorCode string) ([]result, error) {
 	results := make([]result, total)
 	sem := make(chan struct{}, concurrency)
 	var wg sync.WaitGroup
@@ -141,7 +142,7 @@ func runBurst(client *http.Client, targetURL, apiKey string, payload requestPayl
 			defer wg.Done()
 			defer func() { <-sem }()
 			requestPayload := payload
-			requestPayload.Logs = buildLogs(logsPerRequest, sequenceStart+idx)
+			requestPayload.Logs = buildLogs(logsPerRequest, sequenceStart+idx, errorCode)
 			results[idx] = sendRequest(client, targetURL, apiKey, requestPayload)
 		}(i)
 	}
@@ -149,7 +150,7 @@ func runBurst(client *http.Client, targetURL, apiKey string, payload requestPayl
 	return results, nil
 }
 
-func runSustained(client *http.Client, targetURL, apiKey string, payload requestPayload, logsPerRequest int, duration time.Duration, rate, concurrency int) ([]result, error) {
+func runSustained(client *http.Client, targetURL, apiKey string, payload requestPayload, logsPerRequest int, duration time.Duration, rate, concurrency int, errorCode string) ([]result, error) {
 	interval := time.Second / time.Duration(rate)
 	if interval <= 0 {
 		return nil, fmt.Errorf("rate is too high")
@@ -178,7 +179,7 @@ func runSustained(client *http.Client, targetURL, apiKey string, payload request
 				defer wg.Done()
 				defer func() { <-sem }()
 				requestPayload := payload
-				requestPayload.Logs = buildLogs(logsPerRequest, current)
+				requestPayload.Logs = buildLogs(logsPerRequest, current, errorCode)
 				item := sendRequest(client, targetURL, apiKey, requestPayload)
 				mu.Lock()
 				results = append(results, item)
@@ -208,19 +209,23 @@ func sendRequest(client *http.Client, targetURL, apiKey string, payload requestP
 	return result{statusCode: resp.StatusCode, duration: time.Since(start)}
 }
 
-func buildLogs(count, sequence int) []requestLogItem {
+func buildLogs(count, sequence int, errorCode string) []requestLogItem {
 	logs := make([]requestLogItem, 0, count)
 	base := time.Now().UTC()
 	for i := 0; i < count; i++ {
+		fields := map[string]any{
+			"host":     "loadtest-1",
+			"trace_id": fmt.Sprintf("request-%d-item-%d", sequence+1, i+1),
+			"region":   "us-west-2",
+		}
+		if value := strings.TrimSpace(errorCode); value != "" {
+			fields["error_code"] = value
+		}
 		logs = append(logs, requestLogItem{
 			Timestamp: base.Add(time.Duration(i) * time.Millisecond).Format(time.RFC3339Nano),
 			Level:     "error",
 			Message:   fmt.Sprintf("database timeout request=%d item=%d", sequence+1, i+1),
-			Fields: map[string]any{
-				"host":     "loadtest-1",
-				"trace_id": fmt.Sprintf("request-%d-item-%d", sequence+1, i+1),
-				"region":   "us-west-2",
-			},
+			Fields:    fields,
 		})
 	}
 	return logs

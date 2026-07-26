@@ -44,6 +44,55 @@ func TestAlertHistoryHandlerScopesQueryToTenant(t *testing.T) {
 	}
 }
 
+func TestAlertHistoryHandlerReturnsLifecycleValueAndNotificationResult(t *testing.T) {
+	triggeringValue := 20.0
+	resolvedAt := time.Date(2026, 7, 1, 0, 10, 0, 0, time.UTC)
+	sentAt := time.Date(2026, 7, 1, 0, 1, 0, 0, time.UTC)
+	store := &stubAlertHistoryStore{alerts: []AlertHistoryItem{{
+		AlertInstanceID: 10,
+		RuleID:          20,
+		RuleName:        "payment errors",
+		Severity:        "critical",
+		DedupeKey:       "service=payment-api",
+		Status:          "resolved",
+		TriggeredAt:     time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+		FirstFiredAt:    time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+		LastFiredAt:     time.Date(2026, 7, 1, 0, 5, 0, 0, time.UTC),
+		ResolvedAt:      &resolvedAt,
+		TriggeringValue: &triggeringValue,
+		NotificationResult: &AlertNotificationResult{
+			Status:       "sent",
+			AttemptCount: 1,
+			SentAt:       &sentAt,
+		},
+	}}}
+	req := tenantRequest(httptest.NewRequest(http.MethodGet, "/v1/alerts/history?start=2026-07-01T00:00:00Z&end=2026-07-02T00:00:00Z", nil))
+	rec := httptest.NewRecorder()
+
+	NewAlertHistoryHandler(store).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var response struct {
+		Alerts []AlertHistoryItem `json:"alerts"`
+		Count  int                `json:"count"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.Count != 1 || len(response.Alerts) != 1 {
+		t.Fatalf("expected one history item, got %+v", response)
+	}
+	item := response.Alerts[0]
+	if item.TriggeredAt.IsZero() || item.ResolvedAt == nil || item.TriggeringValue == nil || *item.TriggeringValue != 20 {
+		t.Fatalf("missing lifecycle/value fields: %+v", item)
+	}
+	if item.NotificationResult == nil || item.NotificationResult.Status != "sent" || item.NotificationResult.AttemptCount != 1 || item.NotificationResult.SentAt == nil {
+		t.Fatalf("missing notification result: %+v", item.NotificationResult)
+	}
+}
+
 func TestAlertAuditHandlerReturnsCombinedTimeline(t *testing.T) {
 	store := &stubAlertHistoryStore{audit: []AlertAuditEntry{{ID: "attempt:1", EventType: "notification_attempt"}}}
 	req := tenantRequest(httptest.NewRequest(http.MethodGet, "/v1/alerts/audit?start=2026-07-01T00:00:00Z&end=2026-07-02T00:00:00Z&event_type=notification_attempt", nil))

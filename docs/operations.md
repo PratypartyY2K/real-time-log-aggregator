@@ -143,6 +143,7 @@ go run ./cmd/loadtest \
   -burst-size 100 \
   -concurrency 20 \
   -logs-per-request 25 \
+  -error-code PAYMENT_TIMEOUT \
   -pause 2s \
   -max-error-rate 0.01 \
   -max-p95 500ms
@@ -166,6 +167,8 @@ go run ./cmd/loadtest \
 The command exits unsuccessfully when an error-rate or p95 threshold is
 exceeded. Its summary reports achieved request rate and p50/p95/p99/max
 latency. Multiply request rate by `logs-per-request` for offered log throughput.
+Set `-error-code` when validating alert thresholds against a stable incident
+field while keeping request payloads unique.
 
 Run the query-path microbenchmarks with:
 
