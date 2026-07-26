@@ -13,6 +13,9 @@ func TestMetricsExposeLegacyAndObservabilityMetrics(t *testing.T) {
 	metrics.ObserveBatch(resultSuccess, 3, 125*time.Millisecond)
 	metrics.ObserveEndToEnd(resultSuccess, receivedAt, receivedAt.Add(750*time.Millisecond))
 	metrics.ObserveDLQ("retry_exhausted", "published")
+	metrics.ObserveRetry("retryable_error")
+	metrics.ObserveClickHouseWrite(resultSuccess, 20*time.Millisecond)
+	metrics.ObserveClickHouseWrite("error", 50*time.Millisecond)
 
 	var body strings.Builder
 	metrics.WritePrometheus(&body)
@@ -29,6 +32,10 @@ func TestMetricsExposeLegacyAndObservabilityMetrics(t *testing.T) {
 		{"logagg_processor_end_to_end_latency_seconds_bucket", "1", []string{`le="1"`, `result="success"`, `service="processor"`}},
 		{"logagg_processor_end_to_end_latency_seconds_count", "1", []string{`result="success"`, `service="processor"`}},
 		{"logagg_dlq_publications_total", "1", []string{`outcome="published"`, `reason="retry_exhausted"`, `service="processor"`}},
+		{"logagg_processor_retries_total", "1", []string{`reason="retryable_error"`, `service="processor"`}},
+		{"logagg_clickhouse_write_duration_seconds_count", "1", []string{`operation="write"`, `result="success"`, `service="processor"`}},
+		{"logagg_clickhouse_write_duration_seconds_count", "1", []string{`operation="write"`, `result="error"`, `service="processor"`}},
+		{"logagg_clickhouse_write_errors_total", "1", []string{`operation="write"`, `result="error"`, `service="processor"`}},
 	}
 	for _, metric := range expected {
 		if !containsMetric(output, metric.name, metric.value, metric.labels...) {

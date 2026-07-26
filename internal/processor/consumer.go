@@ -17,16 +17,17 @@ import (
 
 func Run(ctx context.Context, logger app.Logger, cfg config.Config, metrics *Metrics, alertMetrics AlertMetrics, ruleStore AlertRuleStore) error {
 	nc, consumer, err := stream.ConnectJetStreamConsumer(stream.ConsumerOptions{
-		URL:         cfg.NATSURL,
-		StreamName:  cfg.NATSStream,
-		Subject:     cfg.NATSSubject,
-		DLQSubject:  cfg.NATSDLQSubject,
-		Durable:     cfg.NATSDurable,
-		MaxDeliver:  cfg.NATSMaxDeliver,
-		ReplayMode:  cfg.NATSReplayMode,
-		ReplaySeq:   cfg.NATSReplaySeq,
-		ReplayTime:  cfg.NATSReplayTime,
-		DLQObserver: metrics,
+		URL:           cfg.NATSURL,
+		StreamName:    cfg.NATSStream,
+		Subject:       cfg.NATSSubject,
+		DLQSubject:    cfg.NATSDLQSubject,
+		Durable:       cfg.NATSDurable,
+		MaxDeliver:    cfg.NATSMaxDeliver,
+		ReplayMode:    cfg.NATSReplayMode,
+		ReplaySeq:     cfg.NATSReplaySeq,
+		ReplayTime:    cfg.NATSReplayTime,
+		DLQObserver:   metrics,
+		RetryObserver: metrics,
 	})
 	if err != nil {
 		return err
@@ -34,6 +35,7 @@ func Run(ctx context.Context, logger app.Logger, cfg config.Config, metrics *Met
 	defer nc.Drain()
 
 	writer := NewClickHouseWriter(cfg.ClickHouseDSN)
+	writer.metrics = metrics
 	dispatcher := alerts.NewLogDispatcher(logger)
 	ruleEngine := alerts.NewEngine()
 	if deliveryStore, ok := ruleStore.(alerts.DeliveryBatchStore); ok {

@@ -78,8 +78,10 @@ func TestClickHouseWriterWritesJSONEachRowBatch(t *testing.T) {
 }
 
 func TestClickHouseWriterReturnsServerError(t *testing.T) {
+	metrics := NewMetrics("processor")
 	writer := &ClickHouseWriter{
-		url: "http://clickhouse.local",
+		url:     "http://clickhouse.local",
+		metrics: metrics,
 		client: &http.Client{
 			Transport: roundTripperFunc(func(*http.Request) (*http.Response, error) {
 				return &http.Response{
@@ -100,6 +102,12 @@ func TestClickHouseWriterReturnsServerError(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "clickhouse insert failed") {
 		t.Fatalf("expected clickhouse insert error, got %v", err)
+	}
+
+	var body strings.Builder
+	metrics.WritePrometheus(&body)
+	if !containsMetric(body.String(), "logagg_clickhouse_write_errors_total", "1", `result="error"`, `operation="write"`) {
+		t.Fatalf("expected clickhouse write error metric, got %s", body.String())
 	}
 }
 

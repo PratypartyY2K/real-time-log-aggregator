@@ -20,8 +20,9 @@ type LogWriter interface {
 }
 
 type ClickHouseWriter struct {
-	url    string
-	client *http.Client
+	url     string
+	client  *http.Client
+	metrics *Metrics
 }
 
 type clickHouseInsertRow struct {
@@ -100,7 +101,15 @@ func (w *ClickHouseWriter) WriteBatch(ctx context.Context, records []NormalizedL
 	if len(records) == 0 {
 		return nil
 	}
+	start := time.Now()
+	result := resultSuccess
+	defer func() {
+		if w != nil && w.metrics != nil {
+			w.metrics.ObserveClickHouseWrite(result, time.Since(start))
+		}
+	}()
 	if w == nil || w.url == "" {
+		result = "error"
 		return fmt.Errorf("clickhouse writer is not configured")
 	}
 
@@ -125,12 +134,14 @@ func (w *ClickHouseWriter) WriteBatch(ctx context.Context, records []NormalizedL
 			RawSizeBytes: record.RawSizeBytes,
 		}
 		if err := encoder.Encode(row); err != nil {
+			result = "error"
 			return fmt.Errorf("encode clickhouse row: %w", err)
 		}
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, w.url, &body)
 	if err != nil {
+		result = "error"
 		return fmt.Errorf("build clickhouse request: %w", err)
 	}
 	req.Header.Set("Content-Type", "text/plain; charset=utf-8")
@@ -138,11 +149,13 @@ func (w *ClickHouseWriter) WriteBatch(ctx context.Context, records []NormalizedL
 
 	resp, err := w.client.Do(req)
 	if err != nil {
+		result = "error"
 		return fmt.Errorf("write clickhouse batch: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= http.StatusBadRequest {
+		result = "error"
 		payload, readErr := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		if readErr != nil {
 			return fmt.Errorf("clickhouse insert failed with status %s", resp.Status)

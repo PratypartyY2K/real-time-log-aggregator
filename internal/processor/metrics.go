@@ -15,11 +15,19 @@ const (
 	resultRetryable    = "retryable_error"
 )
 
-var endToEndLatencyBuckets = []float64{0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 300, 900}
+var (
+	endToEndLatencyBuckets = []float64{0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 300, 900}
+	httpLikeLatencyBuckets = []float64{0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10}
+)
 
 type dlqMetricKey struct {
 	reason  string
 	outcome string
+}
+
+type clickHouseMetricKey struct {
+	operation string
+	result    string
 }
 
 type Metrics struct {
@@ -33,6 +41,10 @@ type Metrics struct {
 	endToEndSum         map[string]float64
 	endToEndBuckets     map[string][]uint64
 	dlqPublicationCount map[dlqMetricKey]uint64
+	retryCount          map[string]uint64
+	clickHouseCount     map[clickHouseMetricKey]uint64
+	clickHouseSum       map[clickHouseMetricKey]float64
+	clickHouseBuckets   map[clickHouseMetricKey][]uint64
 }
 
 func NewMetrics(service string) *Metrics {
@@ -45,6 +57,10 @@ func NewMetrics(service string) *Metrics {
 		endToEndSum:         map[string]float64{},
 		endToEndBuckets:     map[string][]uint64{},
 		dlqPublicationCount: map[dlqMetricKey]uint64{},
+		retryCount:          map[string]uint64{},
+		clickHouseCount:     map[clickHouseMetricKey]uint64{},
+		clickHouseSum:       map[clickHouseMetricKey]float64{},
+		clickHouseBuckets:   map[clickHouseMetricKey][]uint64{},
 	}
 }
 
@@ -100,6 +116,43 @@ func (m *Metrics) ObserveDLQ(reason, outcome string) {
 	m.mu.Unlock()
 }
 
+func (m *Metrics) ObserveRetry(reason string) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	m.retryCount[normalizedLabel(reason)]++
+	m.mu.Unlock()
+}
+
+func (m *Metrics) ObserveClickHouseWrite(result string, duration time.Duration) {
+	m.observeClickHouse("write", result, duration)
+}
+
+func (m *Metrics) observeClickHouse(operation, result string, duration time.Duration) {
+	if m == nil {
+		return
+	}
+	key := clickHouseMetricKey{operation: normalizedLabel(operation), result: normalizedLabel(result)}
+	seconds := duration.Seconds()
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.clickHouseCount[key]++
+	m.clickHouseSum[key] += seconds
+	buckets := m.clickHouseBuckets[key]
+	if buckets == nil {
+		buckets = make([]uint64, len(httpLikeLatencyBuckets))
+	}
+	for index, upperBound := range httpLikeLatencyBuckets {
+		if seconds <= upperBound {
+			buckets[index]++
+		}
+	}
+	m.clickHouseBuckets[key] = buckets
+}
+
 func (m *Metrics) WritePrometheus(body *strings.Builder) {
 	if m == nil {
 		return
@@ -111,6 +164,9 @@ func (m *Metrics) WritePrometheus(body *strings.Builder) {
 	commonmetrics.WriteMetricHelp(body, "logagg_processor_batch_duration_seconds_count", "Total processed batches recorded for duration aggregation.", "counter")
 	commonmetrics.WriteMetricHelp(body, "logagg_processor_end_to_end_latency_seconds", "End-to-end latency from ingest receipt through processor completion.", "histogram")
 	commonmetrics.WriteMetricHelp(body, "logagg_dlq_publications_total", "Total dead-letter queue publication attempts by reason and outcome.", "counter")
+	commonmetrics.WriteMetricHelp(body, "logagg_processor_retries_total", "Total processor message retries requested by reason.", "counter")
+	commonmetrics.WriteMetricHelp(body, "logagg_clickhouse_write_duration_seconds", "ClickHouse write latency in seconds by result.", "histogram")
+	commonmetrics.WriteMetricHelp(body, "logagg_clickhouse_write_errors_total", "Total ClickHouse write failures.", "counter")
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -141,6 +197,25 @@ func (m *Metrics) WritePrometheus(body *strings.Builder) {
 	for key, count := range m.dlqPublicationCount {
 		labels := map[string]string{"service": m.service, "reason": key.reason, "outcome": key.outcome}
 		commonmetrics.WriteMetricLine(body, "logagg_dlq_publications_total", labels, strconv.FormatUint(count, 10))
+	}
+	for reason, count := range m.retryCount {
+		commonmetrics.WriteMetricLine(body, "logagg_processor_retries_total", map[string]string{"service": m.service, "reason": reason}, strconv.FormatUint(count, 10))
+	}
+	for key, count := range m.clickHouseCount {
+		labels := map[string]string{"service": m.service, "operation": key.operation, "result": key.result}
+		for index, upperBound := range httpLikeLatencyBuckets {
+			bucketLabels := cloneMetricLabels(labels)
+			bucketLabels["le"] = commonmetrics.FormatFloat(upperBound)
+			commonmetrics.WriteMetricLine(body, "logagg_clickhouse_write_duration_seconds_bucket", bucketLabels, strconv.FormatUint(m.clickHouseBuckets[key][index], 10))
+		}
+		infiniteLabels := cloneMetricLabels(labels)
+		infiniteLabels["le"] = "+Inf"
+		commonmetrics.WriteMetricLine(body, "logagg_clickhouse_write_duration_seconds_bucket", infiniteLabels, strconv.FormatUint(count, 10))
+		commonmetrics.WriteMetricLine(body, "logagg_clickhouse_write_duration_seconds_sum", labels, commonmetrics.FormatFloat(m.clickHouseSum[key]))
+		commonmetrics.WriteMetricLine(body, "logagg_clickhouse_write_duration_seconds_count", labels, strconv.FormatUint(count, 10))
+		if key.result != resultSuccess {
+			commonmetrics.WriteMetricLine(body, "logagg_clickhouse_write_errors_total", labels, strconv.FormatUint(count, 10))
+		}
 	}
 }
 
