@@ -32,6 +32,14 @@ type response struct {
 	Checks []checkResult `json:"checks"`
 }
 
+func HealthHandler() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	})
+}
+
 func NewHandler(checkers ...Checker) *Handler {
 	return &Handler{
 		checkers: checkers,
