@@ -391,26 +391,46 @@ func SetupJetStream(url, streamName, subject, dlqSubject, durable string, maxDel
 		return fmt.Errorf("create jetstream context: %w", err)
 	}
 
-	if _, err := js.AddStream(&nats.StreamConfig{
+	streamConfig := &nats.StreamConfig{
 		Name:       streamName,
 		Subjects:   []string{subject, dlqSubject},
 		Storage:    nats.FileStorage,
 		Duplicates: duplicateWindow,
-	}); err != nil {
-		if validateErr := validateStream(js, streamName, subject, dlqSubject); validateErr != nil {
+	}
+	if _, err := js.AddStream(streamConfig); err != nil {
+		info, lookupErr := js.StreamInfo(streamName)
+		if lookupErr != nil {
 			return fmt.Errorf("ensure stream %q: %w", streamName, err)
+		}
+		for _, required := range streamConfig.Subjects {
+			if !slices.Contains(info.Config.Subjects, required) {
+				info.Config.Subjects = append(info.Config.Subjects, required)
+			}
+		}
+		info.Config.Duplicates = duplicateWindow
+		if _, updateErr := js.UpdateStream(&info.Config); updateErr != nil {
+			return fmt.Errorf("update stream %q: %w", streamName, updateErr)
 		}
 	}
 
-	if _, err := js.AddConsumer(streamName, &nats.ConsumerConfig{
+	consumerConfig := &nats.ConsumerConfig{
 		Durable:       durable,
 		FilterSubject: subject,
 		AckPolicy:     nats.AckExplicitPolicy,
 		AckWait:       30 * time.Second,
 		MaxDeliver:    maxDeliver,
-	}); err != nil {
-		if validateErr := validateConsumer(js, streamName, durable, subject, maxDeliver); validateErr != nil {
+	}
+	if _, err := js.AddConsumer(streamName, consumerConfig); err != nil {
+		info, lookupErr := js.ConsumerInfo(streamName, durable)
+		if lookupErr != nil {
 			return fmt.Errorf("ensure consumer %q: %w", durable, err)
+		}
+		info.Config.FilterSubject = subject
+		info.Config.AckPolicy = nats.AckExplicitPolicy
+		info.Config.AckWait = 30 * time.Second
+		info.Config.MaxDeliver = maxDeliver
+		if _, updateErr := js.UpdateConsumer(streamName, &info.Config); updateErr != nil {
+			return fmt.Errorf("update consumer %q: %w", durable, updateErr)
 		}
 	}
 
