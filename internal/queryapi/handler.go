@@ -49,19 +49,21 @@ type QueryFilter struct {
 }
 
 type LogRecord struct {
-	Timestamp    time.Time      `json:"timestamp"`
-	TenantID     uint64         `json:"tenant_id"`
-	Service      string         `json:"service"`
-	Environment  string         `json:"environment"`
-	Source       string         `json:"source"`
-	Host         string         `json:"host"`
-	Level        string         `json:"level"`
-	TraceID      string         `json:"trace_id"`
-	Fingerprint  string         `json:"fingerprint"`
-	Message      string         `json:"message"`
-	Fields       map[string]any `json:"fields"`
-	IngestID     string         `json:"ingest_id"`
-	RawSizeBytes uint32         `json:"raw_size_bytes"`
+	Timestamp       time.Time      `json:"timestamp"`
+	TenantID        uint64         `json:"tenant_id"`
+	Service         string         `json:"service"`
+	Environment     string         `json:"environment"`
+	Source          string         `json:"source"`
+	Host            string         `json:"host"`
+	Level           string         `json:"level"`
+	TraceID         string         `json:"trace_id"`
+	Fingerprint     string         `json:"fingerprint"`
+	Message         string         `json:"message"`
+	MessageTemplate string         `json:"message_template"`
+	TemplateID      string         `json:"template_id"`
+	Fields          map[string]any `json:"fields"`
+	IngestID        string         `json:"ingest_id"`
+	RawSizeBytes    uint32         `json:"raw_size_bytes"`
 }
 
 type queryResponse struct {

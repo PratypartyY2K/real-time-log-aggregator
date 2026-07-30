@@ -31,19 +31,21 @@ type clickHouseAnalyticsQueryResponse struct {
 }
 
 type clickHouseQueryRow struct {
-	Timestamp    string `json:"timestamp"`
-	TenantID     uint64 `json:"tenant_id"`
-	Service      string `json:"service"`
-	Environment  string `json:"environment"`
-	Source       string `json:"source"`
-	Host         string `json:"host"`
-	Level        string `json:"level"`
-	TraceID      string `json:"trace_id"`
-	Fingerprint  string `json:"fingerprint"`
-	Message      string `json:"message"`
-	FieldsJSON   string `json:"fields_json"`
-	IngestID     string `json:"ingest_id"`
-	RawSizeBytes uint32 `json:"raw_size_bytes"`
+	Timestamp       string `json:"timestamp"`
+	TenantID        uint64 `json:"tenant_id"`
+	Service         string `json:"service"`
+	Environment     string `json:"environment"`
+	Source          string `json:"source"`
+	Host            string `json:"host"`
+	Level           string `json:"level"`
+	TraceID         string `json:"trace_id"`
+	Fingerprint     string `json:"fingerprint"`
+	Message         string `json:"message"`
+	MessageTemplate string `json:"message_template"`
+	TemplateID      string `json:"template_id"`
+	FieldsJSON      string `json:"fields_json"`
+	IngestID        string `json:"ingest_id"`
+	RawSizeBytes    uint32 `json:"raw_size_bytes"`
 }
 
 func NewClickHouseStore(dsn string, shardDSNs ...string) *ClickHouseStore {
@@ -239,7 +241,7 @@ func (s *ClickHouseStore) QueryGraphRecords(ctx context.Context, query GraphQuer
 func buildLogsQuery(filter QueryFilter) string {
 	var query bytes.Buffer
 	query.WriteString("SELECT ")
-	query.WriteString("timestamp, tenant_id, service, environment, source, host, level, trace_id, fingerprint, message, fields_json, ingest_id, raw_size_bytes ")
+	query.WriteString("timestamp, tenant_id, service, environment, source, host, level, trace_id, fingerprint, message, message_template, template_id, fields_json, ingest_id, raw_size_bytes ")
 	query.WriteString("FROM logs ")
 	query.WriteString("WHERE tenant_id = ")
 	query.WriteString(strconv.FormatUint(filter.TenantID, 10))
@@ -467,19 +469,21 @@ func toLogRecord(row clickHouseQueryRow) (LogRecord, error) {
 	}
 
 	return LogRecord{
-		Timestamp:    timestamp.UTC(),
-		TenantID:     row.TenantID,
-		Service:      row.Service,
-		Environment:  row.Environment,
-		Source:       row.Source,
-		Host:         row.Host,
-		Level:        row.Level,
-		TraceID:      row.TraceID,
-		Fingerprint:  row.Fingerprint,
-		Message:      row.Message,
-		Fields:       fields,
-		IngestID:     row.IngestID,
-		RawSizeBytes: row.RawSizeBytes,
+		Timestamp:       timestamp.UTC(),
+		TenantID:        row.TenantID,
+		Service:         row.Service,
+		Environment:     row.Environment,
+		Source:          row.Source,
+		Host:            row.Host,
+		Level:           row.Level,
+		TraceID:         row.TraceID,
+		Fingerprint:     row.Fingerprint,
+		Message:         row.Message,
+		MessageTemplate: row.MessageTemplate,
+		TemplateID:      row.TemplateID,
+		Fields:          fields,
+		IngestID:        row.IngestID,
+		RawSizeBytes:    row.RawSizeBytes,
 	}, nil
 }
 

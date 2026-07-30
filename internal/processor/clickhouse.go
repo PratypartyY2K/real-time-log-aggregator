@@ -26,19 +26,21 @@ type ClickHouseWriter struct {
 }
 
 type clickHouseInsertRow struct {
-	Timestamp    string `json:"timestamp"`
-	TenantID     uint64 `json:"tenant_id"`
-	Service      string `json:"service"`
-	Environment  string `json:"environment"`
-	Source       string `json:"source"`
-	Host         string `json:"host"`
-	Level        string `json:"level"`
-	TraceID      string `json:"trace_id"`
-	Fingerprint  string `json:"fingerprint"`
-	Message      string `json:"message"`
-	FieldsJSON   string `json:"fields_json"`
-	IngestID     string `json:"ingest_id"`
-	RawSizeBytes uint32 `json:"raw_size_bytes"`
+	Timestamp       string `json:"timestamp"`
+	TenantID        uint64 `json:"tenant_id"`
+	Service         string `json:"service"`
+	Environment     string `json:"environment"`
+	Source          string `json:"source"`
+	Host            string `json:"host"`
+	Level           string `json:"level"`
+	TraceID         string `json:"trace_id"`
+	Fingerprint     string `json:"fingerprint"`
+	Message         string `json:"message"`
+	MessageTemplate string `json:"message_template"`
+	TemplateID      string `json:"template_id"`
+	FieldsJSON      string `json:"fields_json"`
+	IngestID        string `json:"ingest_id"`
+	RawSizeBytes    uint32 `json:"raw_size_bytes"`
 }
 
 func NewClickHouseWriter(dsn string) *ClickHouseWriter {
@@ -117,19 +119,21 @@ func (w *ClickHouseWriter) QueryAlertRecords(ctx context.Context, rule alerts.Ru
 			return nil, fmt.Errorf("parse clickhouse alert timestamp: %w", err)
 		}
 		records = append(records, NormalizedLogRecord{
-			Timestamp:    timestamp.UTC(),
-			TenantID:     row.TenantID,
-			Service:      row.Service,
-			Environment:  row.Environment,
-			Source:       row.Source,
-			Host:         row.Host,
-			Level:        row.Level,
-			TraceID:      row.TraceID,
-			Fingerprint:  row.Fingerprint,
-			Message:      row.Message,
-			FieldsJSON:   row.FieldsJSON,
-			IngestID:     row.IngestID,
-			RawSizeBytes: row.RawSizeBytes,
+			Timestamp:       timestamp.UTC(),
+			TenantID:        row.TenantID,
+			Service:         row.Service,
+			Environment:     row.Environment,
+			Source:          row.Source,
+			Host:            row.Host,
+			Level:           row.Level,
+			TraceID:         row.TraceID,
+			Fingerprint:     row.Fingerprint,
+			Message:         row.Message,
+			MessageTemplate: row.MessageTemplate,
+			TemplateID:      row.TemplateID,
+			FieldsJSON:      row.FieldsJSON,
+			IngestID:        row.IngestID,
+			RawSizeBytes:    row.RawSizeBytes,
 		})
 	}
 	return recordsFromNormalized(records)
@@ -157,19 +161,21 @@ func (w *ClickHouseWriter) WriteBatch(ctx context.Context, records []NormalizedL
 	encoder := json.NewEncoder(&body)
 	for _, record := range records {
 		row := clickHouseInsertRow{
-			Timestamp:    commonclickhouse.FormatDateTime64(record.Timestamp),
-			TenantID:     record.TenantID,
-			Service:      record.Service,
-			Environment:  record.Environment,
-			Source:       record.Source,
-			Host:         record.Host,
-			Level:        record.Level,
-			TraceID:      record.TraceID,
-			Fingerprint:  record.Fingerprint,
-			Message:      record.Message,
-			FieldsJSON:   record.FieldsJSON,
-			IngestID:     record.IngestID,
-			RawSizeBytes: record.RawSizeBytes,
+			Timestamp:       commonclickhouse.FormatDateTime64(record.Timestamp),
+			TenantID:        record.TenantID,
+			Service:         record.Service,
+			Environment:     record.Environment,
+			Source:          record.Source,
+			Host:            record.Host,
+			Level:           record.Level,
+			TraceID:         record.TraceID,
+			Fingerprint:     record.Fingerprint,
+			Message:         record.Message,
+			MessageTemplate: record.MessageTemplate,
+			TemplateID:      record.TemplateID,
+			FieldsJSON:      record.FieldsJSON,
+			IngestID:        record.IngestID,
+			RawSizeBytes:    record.RawSizeBytes,
 		}
 		if err := encoder.Encode(row); err != nil {
 			result = "error"
@@ -189,7 +195,7 @@ func (w *ClickHouseWriter) WriteBatch(ctx context.Context, records []NormalizedL
 
 func buildAlertRecordsQuery(rule alerts.Rule, start, end time.Time, limit int) string {
 	var builder strings.Builder
-	builder.WriteString("SELECT timestamp, tenant_id, service, environment, source, host, level, trace_id, fingerprint, message, fields_json, ingest_id, raw_size_bytes FROM logs WHERE tenant_id = ")
+	builder.WriteString("SELECT timestamp, tenant_id, service, environment, source, host, level, trace_id, fingerprint, message, message_template, template_id, fields_json, ingest_id, raw_size_bytes FROM logs WHERE tenant_id = ")
 	builder.WriteString(fmt.Sprintf("%d", rule.TenantID))
 	builder.WriteString(" AND timestamp >= toDateTime64(")
 	builder.WriteString(clickHouseQuoteLiteral(commonclickhouse.FormatDateTime64(start)))

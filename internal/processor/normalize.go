@@ -13,19 +13,21 @@ import (
 )
 
 type NormalizedLogRecord struct {
-	Timestamp    time.Time
-	TenantID     uint64
-	Service      string
-	Environment  string
-	Source       string
-	Level        string
-	Host         string
-	TraceID      string
-	Fingerprint  string
-	Message      string
-	FieldsJSON   string
-	IngestID     string
-	RawSizeBytes uint32
+	Timestamp       time.Time
+	TenantID        uint64
+	Service         string
+	Environment     string
+	Source          string
+	Level           string
+	Host            string
+	TraceID         string
+	Fingerprint     string
+	Message         string
+	MessageTemplate string
+	TemplateID      string
+	FieldsJSON      string
+	IngestID        string
+	RawSizeBytes    uint32
 }
 
 func normalizeBatch(batch contracts.LogsRawEvent) ([]NormalizedLogRecord, error) {
@@ -80,21 +82,24 @@ func normalizeRecord(
 
 	level := normalizeLevel(record.Level)
 	message := strings.TrimSpace(record.Message)
+	messageTemplate, templateID := extractTemplate(message)
 
 	return NormalizedLogRecord{
-		Timestamp:    timestamp,
-		TenantID:     tenantID,
-		Service:      service,
-		Environment:  environment,
-		Source:       source,
-		Level:        level,
-		Host:         host,
-		TraceID:      traceID,
-		Fingerprint:  fingerprint(service, environment, source, level, message, fieldsJSON),
-		Message:      message,
-		FieldsJSON:   fieldsJSON,
-		IngestID:     requestID,
-		RawSizeBytes: uint32(rawRecordSize(record)),
+		Timestamp:       timestamp,
+		TenantID:        tenantID,
+		Service:         service,
+		Environment:     environment,
+		Source:          source,
+		Level:           level,
+		Host:            host,
+		TraceID:         traceID,
+		Fingerprint:     fingerprint(service, environment, source, level, message, fieldsJSON),
+		Message:         message,
+		MessageTemplate: messageTemplate,
+		TemplateID:      templateID,
+		FieldsJSON:      fieldsJSON,
+		IngestID:        requestID,
+		RawSizeBytes:    uint32(rawRecordSize(record)),
 	}, nil
 }
 
