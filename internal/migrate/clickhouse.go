@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"strings"
 	"time"
 
@@ -74,30 +73,34 @@ func (r ClickHouseRunner) clickHouseAppliedVersions(ctx context.Context) (map[st
 }
 
 func (r ClickHouseRunner) exec(ctx context.Context, query string) error {
-	_, err := r.do(ctx, query, true)
-	return err
+	// ponytail: current migrations contain no semicolons inside literals; use a SQL parser if that changes.
+	lines := strings.Split(query, "\n")
+	query = ""
+	for _, line := range lines {
+		if !strings.HasPrefix(strings.TrimSpace(line), "--") {
+			query += line + "\n"
+		}
+	}
+	for _, statement := range strings.Split(query, ";") {
+		if statement = strings.TrimSpace(statement); statement != "" {
+			if _, err := r.do(ctx, statement); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func (r ClickHouseRunner) query(ctx context.Context, query string) (string, error) {
-	return r.do(ctx, query, false)
+	return r.do(ctx, query)
 }
 
-func (r ClickHouseRunner) do(ctx context.Context, query string, multiquery bool) (string, error) {
-	baseURL, err := url.Parse(r.URL)
-	if err != nil {
-		return "", fmt.Errorf("parse clickhouse url: %w", err)
-	}
-	values := baseURL.Query()
-	if multiquery {
-		values.Set("multiquery", "1")
-	}
-	baseURL.RawQuery = values.Encode()
-
+func (r ClickHouseRunner) do(ctx context.Context, query string) (string, error) {
 	client := r.Client
 	if client == nil {
 		client = &http.Client{Timeout: 30 * time.Second}
 	}
-	body, err := commonclickhouse.Do(ctx, client, baseURL.String(), query)
+	body, err := commonclickhouse.Do(ctx, client, r.URL, query)
 	if err != nil {
 		return "", fmt.Errorf("run clickhouse query: %w", err)
 	}

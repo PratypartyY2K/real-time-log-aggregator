@@ -76,7 +76,7 @@ func TestRunClickHouseAppliesOnlyPendingMigrations(t *testing.T) {
 
 	err := runner.Run(context.Background(), []Migration{
 		{Version: "001_init", Name: "001_init.sql", SQL: "CREATE TABLE skipped"},
-		{Version: "002_logs", Name: "002_logs.sql", SQL: "CREATE TABLE logs"},
+		{Version: "002_logs", Name: "002_logs.sql", SQL: "CREATE TABLE logs; ALTER TABLE logs ADD COLUMN message String;\n-- trailing comment"},
 	})
 	if err != nil {
 		t.Fatalf("RunClickHouse returned error: %v", err)
@@ -88,6 +88,14 @@ func TestRunClickHouseAppliesOnlyPendingMigrations(t *testing.T) {
 	}
 	if !strings.Contains(joined, "CREATE TABLE logs") {
 		t.Fatal("pending migration was not executed")
+	}
+	if !strings.Contains(joined, "ALTER TABLE logs") {
+		t.Fatal("multi-statement migration was not fully executed")
+	}
+	for _, query := range queries {
+		if strings.Contains(query, ";") {
+			t.Fatalf("server received multiple statements: %q", query)
+		}
 	}
 	if !strings.Contains(joined, "INSERT INTO schema_migrations") || !strings.Contains(joined, "'002_logs'") {
 		t.Fatal("pending migration version was not recorded")
