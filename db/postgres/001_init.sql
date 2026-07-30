@@ -92,8 +92,5 @@ CREATE INDEX IF NOT EXISTS idx_api_keys_tenant_status
 CREATE INDEX IF NOT EXISTS idx_alert_instances_rule_status
     ON alert_instances (rule_id, status);
 
-CREATE INDEX IF NOT EXISTS idx_alert_rules_model_scope
-    ON alert_rules (tenant_id, status, service_id, log_level, fingerprint);
-
 CREATE INDEX IF NOT EXISTS idx_notification_deliveries_status_retry
     ON notification_deliveries (status, next_retry_at);
