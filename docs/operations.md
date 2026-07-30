@@ -175,6 +175,12 @@ templates without sending raw log messages:
 go run ./cmd/embed-templates
 ```
 
+Search the embedded templates and return recent supporting logs:
+
+```bash
+go run ./cmd/search-templates -query "why are payments timing out?"
+```
+
 Sustained mode holds a target request rate for a fixed duration:
 
 ```bash
