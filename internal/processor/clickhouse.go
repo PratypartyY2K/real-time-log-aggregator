@@ -112,7 +112,7 @@ func (w *ClickHouseWriter) QueryAlertRecords(ctx context.Context, rule alerts.Ru
 			}
 			return nil, fmt.Errorf("decode clickhouse alert row: %w", err)
 		}
-		timestamp, err := time.Parse(time.RFC3339Nano, row.Timestamp)
+		timestamp, err := commonclickhouse.ParseDateTime64(row.Timestamp)
 		if err != nil {
 			return nil, fmt.Errorf("parse clickhouse alert timestamp: %w", err)
 		}
@@ -157,7 +157,7 @@ func (w *ClickHouseWriter) WriteBatch(ctx context.Context, records []NormalizedL
 	encoder := json.NewEncoder(&body)
 	for _, record := range records {
 		row := clickHouseInsertRow{
-			Timestamp:    record.Timestamp.UTC().Format(time.RFC3339Nano),
+			Timestamp:    commonclickhouse.FormatDateTime64(record.Timestamp),
 			TenantID:     record.TenantID,
 			Service:      record.Service,
 			Environment:  record.Environment,
@@ -192,9 +192,9 @@ func buildAlertRecordsQuery(rule alerts.Rule, start, end time.Time, limit int) s
 	builder.WriteString("SELECT timestamp, tenant_id, service, environment, source, host, level, trace_id, fingerprint, message, fields_json, ingest_id, raw_size_bytes FROM logs WHERE tenant_id = ")
 	builder.WriteString(fmt.Sprintf("%d", rule.TenantID))
 	builder.WriteString(" AND timestamp >= toDateTime64(")
-	builder.WriteString(clickHouseQuoteLiteral(start.UTC().Format(time.RFC3339Nano)))
+	builder.WriteString(clickHouseQuoteLiteral(commonclickhouse.FormatDateTime64(start)))
 	builder.WriteString(", 3, 'UTC') AND timestamp < toDateTime64(")
-	builder.WriteString(clickHouseQuoteLiteral(end.UTC().Format(time.RFC3339Nano)))
+	builder.WriteString(clickHouseQuoteLiteral(commonclickhouse.FormatDateTime64(end)))
 	builder.WriteString(", 3, 'UTC') ")
 	if rule.ServiceName.Valid && strings.TrimSpace(rule.ServiceName.String) != "" {
 		builder.WriteString("AND service = ")

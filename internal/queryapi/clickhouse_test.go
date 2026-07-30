@@ -138,7 +138,7 @@ func TestClickHouseStoreStreamsLogs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
-	if !strings.Contains(requestBody, "LIMIT 2 OFFSET 10 SETTINGS optimize_skip_unused_shards = 1, skip_unavailable_shards = 1 FORMAT JSONEachRow") {
+	if !strings.Contains(requestBody, "LIMIT 2 OFFSET 10 SETTINGS optimize_skip_unused_shards = 1, skip_unavailable_shards = 1, output_format_json_quote_64bit_integers = 0 FORMAT JSONEachRow") {
 		t.Fatalf("expected streaming limit and offset, got %q", requestBody)
 	}
 	if len(logs) != 2 || logs[0].Service != "checkout" || logs[1].Service != "billing" {

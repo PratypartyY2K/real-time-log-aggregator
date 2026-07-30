@@ -49,3 +49,14 @@ func Probe(ctx context.Context, url string, client *http.Client) error {
 	}
 	return body.Close()
 }
+
+func FormatDateTime64(value time.Time) string {
+	return value.UTC().Format("2006-01-02 15:04:05.000")
+}
+
+func ParseDateTime64(value string) (time.Time, error) {
+	if parsed, err := time.Parse(time.RFC3339Nano, value); err == nil {
+		return parsed.UTC(), nil
+	}
+	return time.ParseInLocation("2006-01-02 15:04:05", value, time.UTC)
+}

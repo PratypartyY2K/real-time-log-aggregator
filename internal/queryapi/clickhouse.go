@@ -221,7 +221,7 @@ func (s *ClickHouseStore) QueryGraphRecords(ctx context.Context, query GraphQuer
 	}
 	records := make([]GraphRecord, 0, len(result.Data))
 	for _, row := range result.Data {
-		timestamp, err := time.Parse(time.RFC3339Nano, row.Timestamp)
+		timestamp, err := commonclickhouse.ParseDateTime64(row.Timestamp)
 		if err != nil {
 			return nil, fmt.Errorf("parse graph timestamp: %w", err)
 		}
@@ -244,10 +244,10 @@ func buildLogsQuery(filter QueryFilter) string {
 	query.WriteString("WHERE tenant_id = ")
 	query.WriteString(strconv.FormatUint(filter.TenantID, 10))
 	query.WriteString(" AND timestamp >= toDateTime64(")
-	query.WriteString(quoteLiteral(filter.Start.UTC().Format(time.RFC3339Nano)))
+	query.WriteString(quoteLiteral(commonclickhouse.FormatDateTime64(filter.Start)))
 	query.WriteString(", 3, 'UTC') ")
 	query.WriteString("AND timestamp < toDateTime64(")
-	query.WriteString(quoteLiteral(filter.End.UTC().Format(time.RFC3339Nano)))
+	query.WriteString(quoteLiteral(commonclickhouse.FormatDateTime64(filter.End)))
 	query.WriteString(", 3, 'UTC') ")
 	if filter.Service != "" {
 		query.WriteString("AND service = ")
@@ -269,7 +269,7 @@ func buildLogsQuery(filter QueryFilter) string {
 	if filter.Offset > 0 {
 		query.WriteString(fmt.Sprintf("OFFSET %d ", filter.Offset))
 	}
-	query.WriteString("SETTINGS optimize_skip_unused_shards = 1, skip_unavailable_shards = 1 FORMAT JSON")
+	query.WriteString("SETTINGS optimize_skip_unused_shards = 1, skip_unavailable_shards = 1, output_format_json_quote_64bit_integers = 0 FORMAT JSON")
 	return query.String()
 }
 
@@ -283,9 +283,9 @@ func buildGraphQuery(query GraphQuery) string {
 	builder.WriteString("SELECT timestamp, service, level, trace_id, fields_json, ingest_id FROM logs WHERE tenant_id = ")
 	builder.WriteString(strconv.FormatUint(query.TenantID, 10))
 	builder.WriteString(" AND timestamp >= toDateTime64(")
-	builder.WriteString(quoteLiteral(query.Start.UTC().Format(time.RFC3339Nano)))
+	builder.WriteString(quoteLiteral(commonclickhouse.FormatDateTime64(query.Start)))
 	builder.WriteString(", 3, 'UTC') AND timestamp < toDateTime64(")
-	builder.WriteString(quoteLiteral(query.End.UTC().Format(time.RFC3339Nano)))
+	builder.WriteString(quoteLiteral(commonclickhouse.FormatDateTime64(query.End)))
 	builder.WriteString(", 3, 'UTC') ")
 	if query.TraceID != "" {
 		builder.WriteString("AND trace_id = ")
@@ -335,9 +335,9 @@ func buildAnalyticsQuery(query AnalyticsQuery) string {
 	builder.WriteString(" FROM logs WHERE tenant_id = ")
 	builder.WriteString(strconv.FormatUint(query.TenantID, 10))
 	builder.WriteString(" AND timestamp >= toDateTime64(")
-	builder.WriteString(quoteLiteral(query.Start.UTC().Format(time.RFC3339Nano)))
+	builder.WriteString(quoteLiteral(commonclickhouse.FormatDateTime64(query.Start)))
 	builder.WriteString(", 3, 'UTC') AND timestamp < toDateTime64(")
-	builder.WriteString(quoteLiteral(query.End.UTC().Format(time.RFC3339Nano)))
+	builder.WriteString(quoteLiteral(commonclickhouse.FormatDateTime64(query.End)))
 	builder.WriteString(", 3, 'UTC') ")
 
 	if query.Service != "" {
@@ -454,7 +454,7 @@ func analyticsValueFieldExpr(valueField string) string {
 }
 
 func toLogRecord(row clickHouseQueryRow) (LogRecord, error) {
-	timestamp, err := time.Parse(time.RFC3339Nano, row.Timestamp)
+	timestamp, err := commonclickhouse.ParseDateTime64(row.Timestamp)
 	if err != nil {
 		return LogRecord{}, fmt.Errorf("parse clickhouse timestamp: %w", err)
 	}
