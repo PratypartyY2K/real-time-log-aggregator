@@ -9,7 +9,7 @@ services:
       - nats-data:/data
 
   postgres:
-    image: postgres:17-alpine
+    image: pgvector/pgvector:pg17
     environment:
       POSTGRES_DB: logagg
       POSTGRES_USER: logagg
