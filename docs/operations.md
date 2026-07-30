@@ -168,6 +168,13 @@ go run ./cmd/rag-fixture -at 2026-07-30T14:32:00Z
 go run ./cmd/rag-fixture -at 2026-07-30T14:32:00Z -print
 ```
 
+After applying migrations and setting `OPENAI_API_KEY`, embed unique log
+templates without sending raw log messages:
+
+```bash
+go run ./cmd/embed-templates
+```
+
 Sustained mode holds a target request rate for a fixed duration:
 
 ```bash
