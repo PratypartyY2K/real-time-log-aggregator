@@ -69,13 +69,16 @@ Generate a SHA-256 hash for the development key:
 printf 'local-dev-key' | shasum -a 256
 ```
 
-Insert a tenant, service, and active API key:
+Insert a tenant, local services, and active API key:
 
 ```sql
 INSERT INTO tenants (name) VALUES ('local') ON CONFLICT (name) DO NOTHING;
 
 INSERT INTO services (tenant_id, name, environment)
-SELECT id, 'checkout', 'prod' FROM tenants WHERE name = 'local'
+SELECT id, service, 'prod'
+FROM tenants
+CROSS JOIN unnest(ARRAY['catalog', 'gateway', 'checkout', 'payments', 'payments-db']) AS service
+WHERE name = 'local'
 ON CONFLICT (tenant_id, name, environment) DO NOTHING;
 
 INSERT INTO api_keys (tenant_id, key_hash, status)
@@ -147,6 +150,22 @@ go run ./cmd/loadtest \
   -pause 2s \
   -max-error-rate 0.01 \
   -max-p95 500ms
+```
+
+Generate a small cross-service incident corpus for RAG retrieval tests after
+registering the `catalog`, `gateway`, `checkout`, `payments`, and `payments-db`
+services for the local tenant:
+
+```bash
+go run ./cmd/rag-fixture
+```
+
+Use a fixed incident time for repeatable evaluation, or inspect the payloads
+without sending them:
+
+```bash
+go run ./cmd/rag-fixture -at 2026-07-30T14:32:00Z
+go run ./cmd/rag-fixture -at 2026-07-30T14:32:00Z -print
 ```
 
 Sustained mode holds a target request rate for a fixed duration:
