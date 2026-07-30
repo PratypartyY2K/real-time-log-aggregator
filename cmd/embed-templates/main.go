@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 
 	commonclickhouse "github.com/PratypartyY2K/real-time-log-aggregator/internal/clickhouse"
 	"github.com/PratypartyY2K/real-time-log-aggregator/internal/config"
@@ -27,8 +28,8 @@ func main() {
 	dimensions := flag.Int("dimensions", 256, "embedding dimensions")
 	limit := flag.Int("limit", 100, "maximum new templates to embed")
 	flag.Parse()
-	if *dimensions <= 0 || *limit <= 0 {
-		log.Fatal("dimensions and limit must be positive")
+	if *dimensions != 256 || *limit <= 0 {
+		log.Fatal("dimensions must be 256 and limit must be positive")
 	}
 
 	cfg := config.Load("embed-templates", "")
@@ -62,24 +63,24 @@ func main() {
 		log.Fatal(err)
 	}
 	for i := range pending {
-		payload, err := json.Marshal(vectors[i])
-		if err != nil {
-			log.Fatal(err)
-		}
 		_, err = db.ExecContext(ctx, `
 INSERT INTO log_template_embeddings
-    (tenant_id, template_id, message_template, embedding_model, embedding_dimensions, embedding_json)
-VALUES ($1, $2, $3, $4, $5, $6)
+    (tenant_id, template_id, message_template, embedding_model, embedding_dimensions, embedding)
+VALUES ($1, $2, $3, $4, $5, $6::vector)
 ON CONFLICT (tenant_id, template_id, embedding_model, embedding_dimensions)
 DO UPDATE SET message_template = EXCLUDED.message_template,
-              embedding_json = EXCLUDED.embedding_json,
+              embedding = EXCLUDED.embedding,
               updated_at = NOW()`,
-			pending[i].TenantID, pending[i].TemplateID, pending[i].MessageTemplate, *model, *dimensions, string(payload))
+			pending[i].TenantID, pending[i].TemplateID, pending[i].MessageTemplate, *model, *dimensions, vectorLiteral(vectors[i]))
 		if err != nil {
 			log.Fatal(err)
 		}
 	}
 	log.Printf("embedded %d templates with %s (%d dimensions)", len(pending), *model, *dimensions)
+}
+
+func vectorLiteral(vector []float64) string {
+	return strings.ReplaceAll(fmt.Sprint(vector), " ", ",")
 }
 
 func loadTemplates(ctx context.Context, clickhouseURL string, limit int) ([]template, error) {

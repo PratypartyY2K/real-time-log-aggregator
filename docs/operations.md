@@ -172,10 +172,13 @@ After applying migrations and setting `OPENAI_API_KEY`, embed unique log
 templates without sending raw log messages:
 
 ```bash
+docker compose -f deployments/local/docker-compose.yml up -d postgres
+go run ./cmd/postgres-migrate
 go run ./cmd/embed-templates
 ```
 
-Search the embedded templates and return recent supporting logs:
+Search the embedded templates with pgvector cosine distance and return recent
+supporting logs:
 
 ```bash
 go run ./cmd/search-templates -query "why are payments timing out?"

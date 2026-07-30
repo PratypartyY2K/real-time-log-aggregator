@@ -7,10 +7,8 @@ import (
 	"flag"
 	"fmt"
 	"log"
-	"math"
 	"net/http"
 	"os"
-	"sort"
 	"strings"
 
 	commonclickhouse "github.com/PratypartyY2K/real-time-log-aggregator/internal/clickhouse"
@@ -24,7 +22,6 @@ type match struct {
 	MessageTemplate string     `json:"message_template"`
 	Score           float64    `json:"score"`
 	Logs            []evidence `json:"logs"`
-	vector          []float64
 }
 
 type evidence struct {
@@ -43,8 +40,8 @@ func main() {
 	model := flag.String("model", "text-embedding-3-small", "OpenAI embedding model")
 	dimensions := flag.Int("dimensions", 256, "embedding dimensions")
 	flag.Parse()
-	if strings.TrimSpace(*query) == "" || *tenantID == 0 || *topK <= 0 || *dimensions <= 0 {
-		log.Fatal("query, tenant-id, top-k, and dimensions must be valid")
+	if strings.TrimSpace(*query) == "" || *tenantID == 0 || *topK <= 0 || *dimensions != 256 {
+		log.Fatal("query, tenant-id, and top-k must be valid; dimensions must be 256")
 	}
 
 	cfg := config.Load("search-templates", "")
@@ -75,53 +72,30 @@ func main() {
 
 func rank(ctx context.Context, db *sql.DB, tenantID uint64, model string, dimensions int, query []float64, topK int) ([]match, error) {
 	rows, err := db.QueryContext(ctx, `
-SELECT template_id, message_template, embedding_json::text
+SELECT template_id, message_template, 1 - (embedding <=> $4::vector) AS score
 FROM log_template_embeddings
-WHERE tenant_id = $1 AND embedding_model = $2 AND embedding_dimensions = $3`,
-		tenantID, model, dimensions)
+WHERE tenant_id = $1 AND embedding_model = $2 AND embedding_dimensions = $3
+ORDER BY embedding <=> $4::vector
+LIMIT $5`,
+		tenantID, model, dimensions, vectorLiteral(query), topK)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	// ponytail: exact scan is simplest for the initial template corpus; move cosine search to pgvector when measured latency requires it.
 	matches := []match{}
 	for rows.Next() {
 		var item match
-		var raw string
-		if err := rows.Scan(&item.TemplateID, &item.MessageTemplate, &raw); err != nil {
+		if err := rows.Scan(&item.TemplateID, &item.MessageTemplate, &item.Score); err != nil {
 			return nil, err
 		}
-		if err := json.Unmarshal([]byte(raw), &item.vector); err != nil {
-			return nil, err
-		}
-		item.Score = cosine(query, item.vector)
 		matches = append(matches, item)
 	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	sort.Slice(matches, func(i, j int) bool { return matches[i].Score > matches[j].Score })
-	if len(matches) > topK {
-		matches = matches[:topK]
-	}
-	return matches, nil
+	return matches, rows.Err()
 }
 
-func cosine(a, b []float64) float64 {
-	if len(a) == 0 || len(a) != len(b) {
-		return 0
-	}
-	var dot, aa, bb float64
-	for i := range a {
-		dot += a[i] * b[i]
-		aa += a[i] * a[i]
-		bb += b[i] * b[i]
-	}
-	if aa == 0 || bb == 0 {
-		return 0
-	}
-	return dot / (math.Sqrt(aa) * math.Sqrt(bb))
+func vectorLiteral(vector []float64) string {
+	return strings.ReplaceAll(fmt.Sprint(vector), " ", ",")
 }
 
 func attachEvidence(ctx context.Context, clickhouseURL string, tenantID uint64, matches []match) error {
