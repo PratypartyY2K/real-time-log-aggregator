@@ -48,6 +48,8 @@ production HA topology because shards and Keeper are not replicated.
 - Preserve accepted batches in a durable replayable stream.
 - Normalize timestamps, tags, trace IDs, hosts, fields, and fingerprints.
 - Query raw logs and time-bucketed/grouped analytics.
+- Retrieve log templates by keyword and semantic similarity, expand the newest
+  matching trace, and produce an evidence-grounded incident explanation.
 - Infer tenant-scoped service dependencies, error propagation, and session/request flows from correlated logs.
 - Evaluate count, pattern, rate, and percentile rules over event-time windows and persist alert lifecycle state.
 - Retry transient failures and isolate poison messages in a DLQ.
@@ -118,8 +120,10 @@ flowchart TB
     end
 
     subgraph Control["Control plane"]
-        PG["Postgres"]
+        PG["Postgres + pgvector"]
     end
+
+    AI["OpenAI embeddings + responses"]
 
     subgraph Observe["Observability"]
         PR["Prometheus"]
@@ -136,6 +140,7 @@ flowchart TB
     R --> Q
     Q --> PG
     Q --> C1 & C2
+    Q --> AI
     K --- C1
     K --- C2
     I & W & Q --> PR
@@ -149,12 +154,21 @@ flowchart TB
 |---|---|---|
 | Ingest transport | NATS JetStream | Durable batches, replay position, redelivery |
 | Analytical data | ClickHouse | Normalized logs and aggregate execution |
-| Control/state | Postgres | Tenants, keys, services, rules, alerts, deliveries |
+| Control/state | Postgres + pgvector | Tenants, keys, services, rules, alerts, deliveries, template embeddings |
 | Coordination | ClickHouse Keeper | Cluster metadata and distributed DDL coordination |
 
 The separation prevents high-volume immutable log data from competing with
 transactional alert state and keeps stream retention independent of query-store
 retention.
+
+### 3.4 RAG retrieval path
+
+The processor extracts stable message templates before indexing. The embedding
+utility stores 256-dimensional template vectors in pgvector. For an incident
+question, `query-api` combines cosine similarity with PostgreSQL full-text
+matching, selects the newest matching trace in ClickHouse, expands its logs in
+timestamp order, and asks OpenAI for an explanation constrained to that
+evidence. Raw logs remain in ClickHouse; only templates are embedded.
 
 ## 4. Core data flows
 
@@ -628,6 +642,8 @@ See [operations.md](./operations.md) for concrete metrics and failure drills.
 | Synchronous distributed inserts | Prevent acknowledged-but-not-remote writes | Higher write latency and lower availability during shard failure |
 | Best-effort reads | Preserve diagnostic access during partial outage | Results can be incomplete and must be labeled |
 | Inline alert evaluation | Simple, low-latency pipeline | Couples alert throughput to ingestion processing |
+| Template-level RAG | Reduces noise and embedding cost | Requires an explicit embedding refresh step |
+| Exact pgvector search | Simple and accurate for the current corpus | Add HNSW only after measured search latency warrants it |
 
 ## 13. Evolution roadmap
 
@@ -648,6 +664,7 @@ See [operations.md](./operations.md) for concrete metrics and failure drills.
 - Stream and replay logic: `internal/stream`
 - Processing pipeline: `internal/processor`
 - Query coordination: `internal/queryapi`
+- RAG fixture and embedding tools: `cmd/rag-fixture`, `cmd/embed-templates`, `cmd/search-templates`
 - Alert domain: `internal/alerts`
 - Postgres schema: `db/postgres/001_init.sql`
 - ClickHouse schemas: `db/clickhouse/*.sql`

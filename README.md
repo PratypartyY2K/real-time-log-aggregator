@@ -5,7 +5,8 @@
 A multi-tenant distributed log platform built to demonstrate production-oriented
 system design: durable ingestion, asynchronous processing, replay safety,
 tenant-aware ClickHouse sharding, analytical queries, alert state management,
-backpressure, and observability.
+hybrid log retrieval, evidence-grounded incident summaries, backpressure, and
+observability.
 
 ## Table of contents
 
@@ -28,6 +29,7 @@ flowchart LR
     C --> PG["Postgres control plane"]
     Q["query-api"] --> PG
     Q -->|"distributed reads"| CH
+    Q -->|"incident summaries"| AI["OpenAI"]
     U["Users / dashboards"] --> Q
     I & C & Q --> M["Prometheus + Grafana"]
 ```
@@ -51,6 +53,8 @@ analytical data plane, and Postgres owns control-plane and alert state.
 - Dead-letter handling for poison messages and exhausted retries
 - Prometheus metrics and pre-provisioned Grafana dashboards
 - Time-, sequence-, and full-stream replay modes
+- Template extraction, pgvector plus keyword retrieval, trace expansion, and
+  evidence-grounded incident summaries
 
 ## Repository map
 

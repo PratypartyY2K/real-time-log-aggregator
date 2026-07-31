@@ -166,7 +166,11 @@ without sending them:
 ```bash
 go run ./cmd/rag-fixture -at 2026-07-30T14:32:00Z
 go run ./cmd/rag-fixture -at 2026-07-30T14:32:00Z -print
+go run ./cmd/rag-fixture -at 2026-07-30T14:32:00Z -trace-id rag-payment-replay-001
 ```
+
+Trace IDs are unique by default. Use `-trace-id` only when a stable ID is
+needed for a repeatable test.
 
 After applying migrations and setting `OPENAI_API_KEY`, embed unique log
 templates without sending raw log messages:

@@ -29,7 +29,7 @@ func TestOpenAPIHandlerServesContract(t *testing.T) {
 		t.Fatalf("expected OpenAPI status 200, got %d", rec.Code)
 	}
 	contract := rec.Body.String()
-	for _, expected := range []string{"openapi: 3.1.0", "/v1/logs:", "ApiKey:", "IngestBatch:"} {
+	for _, expected := range []string{"openapi: 3.1.0", "/v1/logs:", "/v1/incidents/summary:", "ApiKey:", "IngestBatch:", "IncidentSummaryResponse:"} {
 		if !strings.Contains(contract, expected) {
 			t.Fatalf("expected OpenAPI contract to contain %q", expected)
 		}

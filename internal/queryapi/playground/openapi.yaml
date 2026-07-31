@@ -91,6 +91,27 @@ paths:
         "200": { description: Raw or aggregate query results }
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+  /v1/incidents/summary:
+    post:
+      summary: Explain the most recent incident matching a natural-language question
+      operationId: summarizeIncident
+      servers:
+        - url: http://localhost:8081
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/IncidentSummaryRequest" }
+      responses:
+        "200":
+          description: Evidence-grounded incident summary
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/IncidentSummaryResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "502": { description: OpenAI request failed }
+        "503": { $ref: "#/components/responses/Unavailable" }
   /v1/alerts:
     post:
       summary: Create an alert rule
@@ -316,6 +337,21 @@ components:
         unavailable_shards:
           type: array
           items: { type: string }
+    IncidentSummaryRequest:
+      type: object
+      additionalProperties: false
+      required: [question]
+      properties:
+        question: { type: string, minLength: 1 }
+    IncidentSummaryResponse:
+      type: object
+      required: [question, answer, logs]
+      properties:
+        question: { type: string }
+        answer: { type: string }
+        logs:
+          type: array
+          items: { $ref: "#/components/schemas/LogRecord" }
     AlertRule:
       allOf:
         - $ref: "#/components/schemas/AlertRuleMutation"
