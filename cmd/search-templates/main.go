@@ -58,7 +58,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	matches, err := rank(ctx, db, *tenantID, *model, *dimensions, vectors[0], *topK)
+	matches, err := rank(ctx, db, *tenantID, *model, *dimensions, strings.TrimSpace(*query), vectors[0], *topK)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -70,14 +70,16 @@ func main() {
 	}
 }
 
-func rank(ctx context.Context, db *sql.DB, tenantID uint64, model string, dimensions int, query []float64, topK int) ([]match, error) {
+func rank(ctx context.Context, db *sql.DB, tenantID uint64, model string, dimensions int, question string, query []float64, topK int) ([]match, error) {
 	rows, err := db.QueryContext(ctx, `
-SELECT template_id, message_template, 1 - (embedding <=> $4::vector) AS score
+SELECT template_id, message_template,
+       0.8 * (1 - (embedding <=> $4::vector)) +
+       0.2 * CASE WHEN to_tsvector('simple', message_template) @@ plainto_tsquery('simple', $5) THEN 1 ELSE 0 END AS score
 FROM log_template_embeddings
 WHERE tenant_id = $1 AND embedding_model = $2 AND embedding_dimensions = $3
-ORDER BY embedding <=> $4::vector
-LIMIT $5`,
-		tenantID, model, dimensions, vectorLiteral(query), topK)
+ORDER BY score DESC
+LIMIT $6`,
+		tenantID, model, dimensions, vectorLiteral(query), question, topK)
 	if err != nil {
 		return nil, err
 	}
