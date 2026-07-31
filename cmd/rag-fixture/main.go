@@ -17,6 +17,7 @@ func main() {
 	url := flag.String("url", "http://localhost:8080/v1/logs", "ingest endpoint")
 	apiKey := flag.String("api-key", "local-dev-key", "ingest API key")
 	at := flag.String("at", "", "incident time in RFC3339 (default: now)")
+	traceID := flag.String("trace-id", "", "incident trace ID (default: unique from incident time)")
 	printOnly := flag.Bool("print", false, "print batches instead of sending them")
 	flag.Parse()
 
@@ -29,7 +30,10 @@ func main() {
 		}
 	}
 
-	batches := buildBatches(incidentAt)
+	if *traceID == "" {
+		*traceID = fmt.Sprintf("rag-payment-%d", incidentAt.UnixMilli())
+	}
+	batches := buildBatches(incidentAt, *traceID)
 	if *printOnly {
 		if err := json.NewEncoder(os.Stdout).Encode(batches); err != nil {
 			exit(err)
@@ -42,10 +46,12 @@ func main() {
 		}
 		fmt.Printf("sent service=%s logs=%d\n", batch.Service, len(batch.Logs))
 	}
-	fmt.Printf("incident_at=%s trace_id=rag-payment-001 expected_cause=payments-db-connection-pool-exhaustion\n", incidentAt.Format(time.RFC3339))
+	fmt.Printf("incident_at=%s trace_id=%s expected_cause=payments-db-connection-pool-exhaustion\n", incidentAt.Format(time.RFC3339), *traceID)
 }
 
-func buildBatches(at time.Time) []ingest.BatchRequest {
+func buildBatches(at time.Time, incidentTraceID string) []ingest.BatchRequest {
+	healthyTraceID := incidentTraceID + "-healthy"
+	noiseTraceID := incidentTraceID + "-noise"
 	log := func(offset time.Duration, level, message, traceID string, fields map[string]any) ingest.LogRecord {
 		if fields == nil {
 			fields = map[string]any{}
@@ -59,24 +65,24 @@ func buildBatches(at time.Time) []ingest.BatchRequest {
 
 	return []ingest.BatchRequest{
 		batch("catalog",
-			log(-90*time.Second, "info", "catalog cache refreshed", "rag-noise-001", map[string]any{"items": 842}),
-			log(-20*time.Second, "warn", "search request completed with partial results", "rag-noise-002", map[string]any{"duration_ms": 410})),
+			log(-90*time.Second, "info", "catalog cache refreshed", noiseTraceID+"-1", map[string]any{"items": 842}),
+			log(-20*time.Second, "warn", "search request completed with partial results", noiseTraceID+"-2", map[string]any{"duration_ms": 410})),
 		batch("gateway",
-			log(-4*time.Second, "info", "POST /checkout started", "rag-payment-001", nil),
-			log(4*time.Second, "error", "POST /checkout returned 500", "rag-payment-001", map[string]any{"duration_ms": 8012, "error_code": "UPSTREAM_FAILURE"})),
+			log(-4*time.Second, "info", "POST /checkout started", incidentTraceID, nil),
+			log(4*time.Second, "error", "POST /checkout returned 500", incidentTraceID, map[string]any{"duration_ms": 8012, "error_code": "UPSTREAM_FAILURE"})),
 		batch("checkout",
-			log(-3*time.Second, "info", "checkout request started", "rag-payment-001", map[string]any{"cart_items": 3}),
-			log(3*time.Second, "error", "payment request failed after 8000 ms", "rag-payment-001", map[string]any{"duration_ms": 8000, "error_code": "PAYMENT_TIMEOUT"}),
-			log(15*time.Second, "info", "checkout request completed", "rag-healthy-001", map[string]any{"duration_ms": 184})),
+			log(-3*time.Second, "info", "checkout request started", incidentTraceID, map[string]any{"cart_items": 3}),
+			log(3*time.Second, "error", "payment request failed after 8000 ms", incidentTraceID, map[string]any{"duration_ms": 8000, "error_code": "PAYMENT_TIMEOUT"}),
+			log(15*time.Second, "info", "checkout request completed", healthyTraceID, map[string]any{"duration_ms": 184})),
 		batch("payments",
-			log(-2*time.Second, "info", "payment authorization started", "rag-payment-001", nil),
-			log(0, "error", "database connection pool exhausted", "rag-payment-001", map[string]any{"active_connections": 50, "max_connections": 50, "error_code": "DB_POOL_EXHAUSTED"}),
-			log(time.Second, "error", "database query timed out after 5000 ms", "rag-payment-001", map[string]any{"duration_ms": 5000, "error_code": "DB_TIMEOUT"}),
-			log(2*time.Second, "error", "payment authorization failed", "rag-payment-001", map[string]any{"error_code": "PAYMENT_DB_UNAVAILABLE"}),
-			log(16*time.Second, "info", "payment authorization completed", "rag-healthy-001", map[string]any{"duration_ms": 91})),
+			log(-2*time.Second, "info", "payment authorization started", incidentTraceID, nil),
+			log(0, "error", "database connection pool exhausted", incidentTraceID, map[string]any{"active_connections": 50, "max_connections": 50, "error_code": "DB_POOL_EXHAUSTED"}),
+			log(time.Second, "error", "database query timed out after 5000 ms", incidentTraceID, map[string]any{"duration_ms": 5000, "error_code": "DB_TIMEOUT"}),
+			log(2*time.Second, "error", "payment authorization failed", incidentTraceID, map[string]any{"error_code": "PAYMENT_DB_UNAVAILABLE"}),
+			log(16*time.Second, "info", "payment authorization completed", healthyTraceID, map[string]any{"duration_ms": 91})),
 		batch("payments-db",
-			log(-time.Second, "warn", "connection pool utilization reached 100 percent", "rag-payment-001", map[string]any{"active_connections": 50, "max_connections": 50}),
-			log(time.Second, "error", "query cancelled because connection acquisition timed out", "rag-payment-001", map[string]any{"wait_ms": 5000, "error_code": "CONNECTION_ACQUIRE_TIMEOUT"})),
+			log(-time.Second, "warn", "connection pool utilization reached 100 percent", incidentTraceID, map[string]any{"active_connections": 50, "max_connections": 50}),
+			log(time.Second, "error", "query cancelled because connection acquisition timed out", incidentTraceID, map[string]any{"wait_ms": 5000, "error_code": "CONNECTION_ACQUIRE_TIMEOUT"})),
 	}
 }
 

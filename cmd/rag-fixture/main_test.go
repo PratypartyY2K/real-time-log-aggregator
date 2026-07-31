@@ -6,11 +6,12 @@ import (
 )
 
 func TestBuildBatchesContainsCorrelatedCauseAndDistractors(t *testing.T) {
-	batches := buildBatches(time.Date(2026, 7, 30, 14, 32, 0, 0, time.UTC))
+	const traceID = "rag-payment-test"
+	batches := buildBatches(time.Date(2026, 7, 30, 14, 32, 0, 0, time.UTC), traceID)
 	var incidentLogs, noiseLogs int
 	for _, batch := range batches {
 		for _, record := range batch.Logs {
-			if record.Fields["trace_id"] == "rag-payment-001" {
+			if record.Fields["trace_id"] == traceID {
 				incidentLogs++
 			} else {
 				noiseLogs++
