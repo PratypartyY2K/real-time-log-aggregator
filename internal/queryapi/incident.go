@@ -131,7 +131,7 @@ FROM logs
 WHERE tenant_id = %d AND trace_id GLOBAL IN (
     SELECT trace_id FROM logs
     WHERE tenant_id = %d AND trace_id != '' AND template_id IN (%s)
-    GROUP BY trace_id ORDER BY max(timestamp) DESC LIMIT 5
+    GROUP BY trace_id ORDER BY max(timestamp) DESC LIMIT 1
 )
 ORDER BY timestamp ASC
 LIMIT 100

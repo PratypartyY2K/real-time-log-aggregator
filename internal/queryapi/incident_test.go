@@ -35,6 +35,9 @@ func TestIncidentQueryUsesGlobalINForDistributedLogs(t *testing.T) {
 		if !strings.Contains(string(query), "trace_id GLOBAL IN") {
 			t.Fatalf("query must use GLOBAL IN: %s", query)
 		}
+		if !strings.Contains(string(query), "ORDER BY max(timestamp) DESC LIMIT 1") {
+			t.Fatalf("query must expand only the newest incident: %s", query)
+		}
 		if !strings.Contains(string(query), "output_format_json_quote_64bit_integers = 0") {
 			t.Fatalf("query must emit numeric tenant IDs: %s", query)
 		}
