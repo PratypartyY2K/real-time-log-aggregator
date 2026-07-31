@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/PratypartyY2K/real-time-log-aggregator/internal/app"
@@ -71,6 +72,8 @@ func routes(serviceName string, db *sql.DB, resolver queryapi.TenantResolver, st
 	mux.Handle("/v1/logs", httpMetrics.Middleware("/v1/logs", queryapi.TenantAuthMiddleware(resolver, queryapi.NewHandler(store))))
 	mux.Handle("/v1/query", httpMetrics.Middleware("/v1/query", queryapi.TenantAuthMiddleware(resolver, queryapi.NewQueryDSLHandler(store))))
 	mux.Handle("/v1/graph", httpMetrics.Middleware("/v1/graph", queryapi.TenantAuthMiddleware(resolver, queryapi.NewGraphHandler(store))))
+	incidentLogs, _ := store.(queryapi.IncidentLogStore)
+	mux.Handle("/v1/incidents/summary", httpMetrics.Middleware("/v1/incidents/summary", queryapi.TenantAuthMiddleware(resolver, queryapi.NewIncidentHandler(db, incidentLogs, os.Getenv("OPENAI_API_KEY"), os.Getenv("RAG_MODEL")))))
 	mux.Handle("/v1/alerts", httpMetrics.Middleware("/v1/alerts", queryapi.TenantAuthMiddleware(resolver, queryapi.NewAlertRuleHandler(alertRuleStore))))
 	mux.Handle("/v1/alerts/", httpMetrics.Middleware("/v1/alerts", queryapi.TenantAuthMiddleware(resolver, queryapi.NewAlertRuleHandler(alertRuleStore))))
 	mux.Handle("/v1/alerts/history", httpMetrics.Middleware("/v1/alerts/history", queryapi.TenantAuthMiddleware(resolver, queryapi.NewAlertHistoryHandler(alertHistoryStore, queryapi.AlertHistoryModeAlerts))))

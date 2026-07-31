@@ -19,6 +19,7 @@ The machine-readable OpenAPI 3.1 contract is served by `query-api` at
 - [Alert history and delivery tracking](#alert-history-and-delivery-tracking)
 - [`GET /v1/analytics`](#get-v1analytics)
 - [`POST /v1/query`](#post-v1query)
+- [`POST /v1/incidents/summary`](#post-v1incidentssummary)
 - [Schema evolution](#schema-evolution)
 - [`GET /v1/status`](#get-v1status)
 
@@ -402,3 +403,19 @@ Current behavior:
 
 - returns a bootstrap JSON payload from `query-api`
 - includes `service`, `time`, and `status`
+
+## `POST /v1/incidents/summary`
+
+Combines pgvector similarity with PostgreSQL keyword matching, expands matching
+trace IDs in ClickHouse, and summarizes the evidence with OpenAI:
+
+```bash
+curl -s http://localhost:8081/v1/incidents/summary \
+  -H 'X-API-Key: local-dev-key' \
+  -H 'Content-Type: application/json' \
+  -d '{"question":"Why are payments timing out?"}'
+```
+
+The response contains `question`, `answer`, and the chronological `logs` used
+as evidence. Set `OPENAI_API_KEY`; optionally set `RAG_MODEL` (defaults to
+`gpt-5.6-sol`).
