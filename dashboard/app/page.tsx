@@ -15,12 +15,15 @@ export type LogEntry = {
 };
 export type AlertEntry = {
   id?: number;
+  alert_instance_id?: number;
   rule_name?: string;
   name?: string;
   service?: string;
   status: string;
   latest_firing_at?: string;
+  last_fired_at?: string;
   first_firing_at?: string;
+  first_fired_at?: string;
   current_value?: number;
 };
 
@@ -41,6 +44,14 @@ function Sparkline({ data, tone = "cyan" }: { data: number[]; tone?: "cyan" | "r
       <polyline points={points} fill="none" stroke="currentColor" strokeWidth="1.8" vectorEffect="non-scaling-stroke" />
     </svg>
   );
+}
+
+function alertTime(alert: AlertEntry) {
+  return alert.latest_firing_at || alert.last_fired_at || alert.first_firing_at || alert.first_fired_at;
+}
+
+function isActiveAlert(alert: AlertEntry) {
+  return alert.status === "active" || alert.status === "firing";
 }
 
 export default function Dashboard() {
@@ -90,7 +101,7 @@ export default function Dashboard() {
     const haystack = `${log.service} ${log.message} ${log.trace_id}`.toLowerCase();
     return matchesLevel && haystack.includes(query.toLowerCase());
   }), [logs, level, query]);
-  const activeAlerts = alerts.filter((a) => a.status === "active");
+  const activeAlerts = alerts.filter(isActiveAlert);
   const errorCount = logs.filter((l) => l.level === "error").length;
   const errorRate = logs.length ? ((errorCount / logs.length) * 100).toFixed(1) : "0.0";
   const serviceCount = new Set(logs.map((l) => l.service)).size;
@@ -104,7 +115,7 @@ export default function Dashboard() {
           {(["Overview", "Logs", "Alerts", "Services"] as Tab[]).map((item) => (
             <button key={item} className={tab === item ? "nav-item active" : "nav-item"} onClick={() => setTab(item)}>
               <span className="nav-icon">{item === "Overview" ? "⌁" : item === "Logs" ? "≡" : item === "Alerts" ? "△" : "◇"}</span>{item}
-              {item === "Alerts" && <span className="badge">{alerts.filter((a) => a.status === "active").length}</span>}
+              {item === "Alerts" && <span className="badge">{alerts.filter(isActiveAlert).length}</span>}
             </button>
           ))}
         </nav>
@@ -144,7 +155,7 @@ export default function Dashboard() {
             </article>
             <article className="panel alert-panel">
               <div className="panel-head"><div><p className="panel-kicker">ATTENTION</p><h2>Active alerts</h2></div><button onClick={() => setTab("Alerts")}>View all →</button></div>
-              <div className="alert-list">{activeAlerts.length ? activeAlerts.map((alert) => <div className="alert-row" key={alert.id || alert.rule_name}><span className="severity">!</span><div><strong>{alert.rule_name || alert.name}</strong><p>{alert.service || "All services"} / {timeAgo(alert.latest_firing_at || alert.first_firing_at)}</p></div><span className="alert-value">{alert.current_value}{(alert.rule_name || "").includes("rate") ? "%" : " ms"}</span></div>) : <p className="empty">No active alerts.</p>}</div>
+              <div className="alert-list">{activeAlerts.length ? activeAlerts.map((alert) => <div className="alert-row" key={alert.id || alert.alert_instance_id || alert.rule_name}><span className="severity">!</span><div><strong>{alert.rule_name || alert.name}</strong><p>{alert.service || "All services"} / {timeAgo(alertTime(alert))}</p></div><span className="alert-value">{alert.current_value ?? ""}{(alert.rule_name || "").includes("rate") ? "%" : ""}</span></div>) : <p className="empty">No active alerts.</p>}</div>
             </article>
             <article className="panel service-panel">
               <div className="panel-head"><div><p className="panel-kicker">RUNTIME</p><h2>Service health</h2></div><button onClick={() => setTab("Services")}>Explore map →</button></div>
@@ -167,7 +178,7 @@ export default function Dashboard() {
 
         {tab === "Alerts" && <section className="panel full-panel">
           <div className="section-intro"><div><p className="panel-kicker">INCIDENT RESPONSE</p><h2>Alert activity</h2><p>Current and recently resolved conditions across your services.</p></div><button className="primary" onClick={refresh} disabled={loading}>Refresh</button></div>
-          <div className="alert-cards">{alerts.map((alert) => <article key={alert.id || alert.rule_name}><span className={`alert-state ${alert.status}`}>{alert.status}</span><h3>{alert.rule_name || alert.name}</h3><p>{alert.service || "All services"}</p><div><span>Last fired</span><strong>{timeAgo(alert.latest_firing_at || alert.first_firing_at)}</strong></div><div><span>Current value</span><strong>{alert.current_value ?? "—"}</strong></div><button onClick={() => setTab("Logs")}>Investigate logs →</button></article>)}</div>
+          <div className="alert-cards">{alerts.map((alert) => <article key={alert.id || alert.alert_instance_id || alert.rule_name}><span className={`alert-state ${alert.status}`}>{alert.status}</span><h3>{alert.rule_name || alert.name}</h3><p>{alert.service || "All services"}</p><div><span>Last fired</span><strong>{timeAgo(alertTime(alert))}</strong></div><div><span>Current value</span><strong>{alert.current_value ?? "-"}</strong></div><button onClick={() => setTab("Logs")}>Investigate logs →</button></article>)}</div>
         </section>}
 
         {tab === "Services" && <section className="panel full-panel">
