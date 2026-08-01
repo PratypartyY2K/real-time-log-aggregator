@@ -2,11 +2,12 @@ GO ?= go
 GOFMT ?= gofmt
 DOCKER ?= docker
 IMAGE_PREFIX ?= logagg
+GO_PACKAGES := ./cmd/... ./db/... ./internal/...
 
 .PHONY: build cli docker-ingest docker-processor docker-query docker-images migrate migrate-postgres migrate-clickhouse postgres-migrate run-ingest run-query run-processor fmt fmt-check test integration-test e2e-test alert-history-test functional-test performance-test query-benchmarks chaos-test validate-repository distributed-integration ci
 
 build:
-	$(GO) build ./...
+	$(GO) build $(GO_PACKAGES)
 
 cli:
 	$(GO) build -o bin/logagg ./cmd/logagg
@@ -44,11 +45,13 @@ run-processor:
 	$(GO) run ./cmd/processor
 
 fmt:
-	$(GO) fmt ./...
+	$(GO) fmt $(GO_PACKAGES)
 
 fmt-check:
 	@unformatted="$$(find . \
 		-path './.git' -prune -o \
+		-path './dashboard/.next' -prune -o \
+		-path './dashboard/node_modules' -prune -o \
 		-path './.gomodcache' -prune -o \
 		-path './vendor' -prune -o \
 		-name '*.go' -print0 | xargs -0 $(GOFMT) -l)"; \
@@ -59,7 +62,7 @@ fmt-check:
 	fi
 
 test:
-	$(GO) test ./...
+	$(GO) test $(GO_PACKAGES)
 
 integration-test:
 	$(GO) test ./internal/processor -run TestIngestQueueProcessorFlow -count=1

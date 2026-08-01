@@ -9,6 +9,9 @@ coverage.out
 .gocache/
 .gomodcache/
 .tmp/
+dashboard/.next/
+dashboard/node_modules/
+dashboard/next-env.d.ts
 
 # Environment
 .env
